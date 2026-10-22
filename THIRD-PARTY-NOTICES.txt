@@ -1,0 +1,58 @@
+ATOMIC KINECTION 1.3.0 - THIRD-PARTY NOTICES
+Atomic Kinection is freeware. It includes or uses the following third-party components.
+Full licence texts are in the "licenses" folder.
+
+1. libfreenect2 (Kinect v2 driver library) - statically linked into akfeed.exe
+   https://github.com/OpenKinect/libfreenect2
+   Copyright (c) 2014-2015 individual OpenKinect contributors (see licenses\libfreenect2-CONTRIB).
+   Used under the Apache License 2.0 (dual-licensed Apache-2.0 / GPL-2.0; Apache-2.0 chosen).
+   Modified by Atomic Kinection: removed the UsbDk option call; added an optional colour-only mode
+   (AK_RGB_ONLY environment variable, off by default); CMake minimum version raised to 3.5.
+   The modified source files are in src\libfreenect2-patches.
+   libfreenect2 itself includes tinythread (zlib licence) - see licenses\libfreenect2-LICENSES.txt.
+
+2. libusb 1.0.27 - statically linked into akfeed.exe
+   https://github.com/libusb/libusb - Copyright (C) 2001-2023 libusb authors.
+   GNU Lesser General Public License 2.1 (licenses\LGPL-2.1.txt).
+   Because libusb is linked statically, the complete source of akfeed.exe (src\feed) and build
+   instructions are provided so you can relink it with a modified libusb.
+
+3. libjpeg-turbo / TurboJPEG (turbojpeg.dll)
+   This software is based in part on the work of the Independent JPEG Group.
+   TurboJPEG API: BSD-3-Clause, Copyright (C) 2009-2011 D. R. Commander and others.
+   See licenses\libfreenect2-LICENSES.txt (section "turbojpeg.dll") for the full text.
+
+4. Zadig 2.9 / libwdi (drivers\zadig-2.9.exe) - installs the libusbK driver for the Kinect
+   https://zadig.akeo.ie - https://github.com/pbatard/libwdi - Copyright (c) Pete Batard / Akeo Consulting.
+   Zadig is GNU GPL v3; libwdi is GNU LGPL v3. Distributed unmodified. Source: https://github.com/pbatard/libwdi
+   The libusbK driver it installs is from the libusbK project (https://github.com/mcuee/libusbk).
+
+5. VB-CABLE Virtual Audio Device (vbcable\) - virtual microphone
+   VB-CABLE origin: www.vb-cable.com
+   VB-CABLE is a donationware, all participations are welcome.
+   VB-CABLE is made by VB-Audio Software (Vincent Burel). It is distributed here unmodified
+   under VB-Audio's distribution terms (https://vb-audio.com/Services/licensing.htm,
+   "VB-CABLE Distribution with other product"). Use in companies/organisations needs licences
+   from VB-Audio's web shop.
+
+6. VCamSample (basis of the "Atomic Kinection" virtual webcam DLL)
+   See licenses\LICENSE-VCamSample.txt.
+
+Windows components used but not distributed: Media Foundation virtual camera API, WASAPI audio,
+.NET Framework 4.8 (all part of Windows).
+
+6. OpenCV 4.12.0 (modules core, imgproc, dnn, objdetect, calib3d, features2d, flann) - statically linked into akfeed.exe
+   https://opencv.org  -  Copyright (C) 2000-2025 OpenCV contributors.
+   Apache License 2.0 (licenses\OpenCV-APACHE20.txt). Used for image scaling, IR/depth colouring and Auto Framing.
+
+7. Protocol Buffers (bundled with OpenCV's dnn module) - statically linked into akfeed.exe
+   Copyright 2008 Google Inc. BSD 3-Clause licence (licenses\protobuf-BSD3.txt).
+
+8. zlib (bundled with OpenCV) - statically linked into akfeed.exe
+   Copyright (C) 1995-2024 Jean-loup Gailly and Mark Adler. zlib licence (licenses\zlib.txt).
+
+9. YuNet face detection model (models\face_detection_yunet_2023mar.onnx), from the OpenCV Zoo
+   https://github.com/opencv/opencv_zoo  -  Copyright (c) Shiqi Yu. MIT licence (licenses\YuNet-MIT.txt).
+   Distributed unmodified.
+
+10. Recording uses Windows Media Foundation (H.264 / AAC encoders), part of Windows itself. Nothing from it is bundled.

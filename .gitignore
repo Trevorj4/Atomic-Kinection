@@ -1,0 +1,41 @@
+# Build outputs
+bin/
+obj/
+build-*/
+out/
+x64/
+Release/
+Debug/
+.vs/
+packages/
+*.obj
+*.res
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.dll
+*.exe
+*.iobj
+*.ipdb
+# Archives and release zips
+*.zip
+*.7z
+# Third-party installers / drivers
+*.sys
+*.cat
+zadig*.exe
+VBCABLE_*
+# Recordings, captures, raw data
+*.mp4
+*.raw
+*.jpg
+# Logs and local settings
+*.log
+*.err
+*.out
+settings.ini
+settings-*.ini
+# Dependency trees (built locally from deps/ scripts)
+deps/src/
+deps/install/

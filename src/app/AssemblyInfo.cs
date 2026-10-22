@@ -1,0 +1,8 @@
+[assembly: System.Reflection.AssemblyVersion("1.3.0.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.3.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersion("1.3.0")]
+[assembly: System.Reflection.AssemblyProduct("Atomic Kinection")]
+[assembly: System.Reflection.AssemblyCompany("Atomic Kinection")]
+[assembly: System.Reflection.AssemblyTitle("Atomic Kinection")]
+[assembly: System.Reflection.AssemblyCopyright("Freeware")]
+[assembly: System.Reflection.AssemblyDescription("Atomic Kinection - Kinect v2 webcam and microphone (freeware, no Microsoft Kinect components)")]
