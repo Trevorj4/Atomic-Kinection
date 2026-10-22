@@ -1,4 +1,4 @@
-# Installs Atomic Kinection 1.3.0 files + the "Atomic Kinection" webcam (needs admin)
+# Installs Atomic Kinection 1.3.2 files + the "Atomic Kinection" webcam (needs admin)
 $ErrorActionPreference = 'Stop'
 $src = Split-Path -Parent $PSScriptRoot
 $dst = "$env:ProgramFiles\AtomicKinection"
@@ -8,7 +8,7 @@ New-Item -ItemType Directory -Force "$env:ProgramData\AtomicKinection" | Out-Nul
 Get-Process AtomicKinection,akfeed -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "$dst*" } | Stop-Process -Force
 Start-Sleep 1
 Stop-Service FrameServer -Force -ErrorAction SilentlyContinue
-# 1.1.x left Microsoft Kinect SDK DLLs here - 1.3.0 does not use them
+# 1.1.x left Microsoft Kinect SDK DLLs here - 1.3.2 does not use them
 Remove-Item "$dst\Microsoft.Kinect.dll","$dst\Microsoft.Kinect.Fusion.dll","$dst\Kinect20.Fusion.dll" -Force -ErrorAction SilentlyContinue
 Copy-Item "$src\AtomicKinection.exe","$src\AtomicKinection.exe.config","$src\akfeed.exe","$src\turbojpeg.dll","$src\camera\AtomicKinectionCamSource.dll","$src\camera\AtomicKinectionCamSetup.exe" $dst -Force
 New-Item -ItemType Directory -Force "$dst\models" | Out-Null

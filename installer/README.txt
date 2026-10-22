@@ -1,4 +1,4 @@
-ATOMIC KINECTION v1.3.0 - Kinect v2 (Xbox One / Kinect for Windows v2) webcam + microphone
+ATOMIC KINECTION v1.3.2 - Kinect v2 (Xbox One / Kinect for Windows v2) webcam + microphone
 Freeware. No Microsoft Kinect software, runtime or driver is used.
 ==========================================================================================
 
@@ -28,7 +28,7 @@ UNINSTALL
 Run Uninstall-AtomicKinection.cmd: removes the app and webcam, puts the Kinect's original
 Windows driver back, and offers to remove VB-CABLE.
 
-NOT YET IN 1.3.0 (planned): depth, infrared, 3D scanner, body/face tracking, Auto Framing.
+NOT YET IN 1.3.2 (planned): depth, infrared, 3D scanner, body/face tracking, Auto Framing.
 The 1.1.x versions (Microsoft Kinect SDK based) are in the Archive folder.
 
 Licences: see THIRD-PARTY-NOTICES.txt and the licenses folder. Source code is in src\.
@@ -42,3 +42,8 @@ NEW IN 1.3.0
   (H.264 + AAC) in Videos\Atomic Kinection, named by date and time. A red REC timer shows while recording.
 - Webcam and recordings are 1920x1080 and not mirrored in every view.
 
+
+NEW IN 1.3.1 / 1.3.2
+- Auto Framing sits a little higher (more headroom). Adjust with FramingOffsetY= in settings.ini (default 0.12).
+- Night vision and Depth are decoded on the graphics card (OpenCL) at 30 fps; falls back to the CPU (about 15 fps)
+  on PCs without OpenCL. With OpenCL, switching views is instant (no Kinect restart).

@@ -1,4 +1,4 @@
-# Atomic Kinection 1.3.0 - full uninstall (run via Uninstall-AtomicKinection.cmd; needs admin)
+# Atomic Kinection 1.3.2 - full uninstall (run via Uninstall-AtomicKinection.cmd; needs admin)
 & (Join-Path $PSScriptRoot 'camera\Uninstall-Camera.ps1')
 Remove-Item "$env:ProgramData\AtomicKinection" -Recurse -Force -ErrorAction SilentlyContinue
 Get-ChildItem 'C:\Users\*\AppData\Local\AtomicKinection' -Directory -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue

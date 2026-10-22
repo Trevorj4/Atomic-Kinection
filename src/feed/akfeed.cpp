@@ -1,4 +1,4 @@
-// Atomic Kinection 1.3.0 feed helper (akfeed.exe) - freeware, no Microsoft Kinect components.
+// Atomic Kinection 1.3.2 feed helper (akfeed.exe) - freeware, no Microsoft Kinect components.
 // Kinect v2 colour / IR / depth via libfreenect2 (libusbK) -> "Atomic Kinection" virtual camera (shared memory),
 // Kinect microphone array (USB audio interface 3) -> VB-CABLE "CABLE Input" (appears to apps as "CABLE Output").
 #define NOMINMAX
@@ -22,6 +22,8 @@
 #include <libfreenect2/libfreenect2.hpp>
 #include <libfreenect2/frame_listener_impl.h>
 #include <libfreenect2/logger.h>
+#include <libfreenect2/packet_pipeline.h>
+#include <libfreenect2/depth_packet_processor.h> // internal header: good()
 #include <mutex>
 #include <algorithm>
 #include <opencv2/core.hpp>
@@ -46,6 +48,7 @@ public:
 };
 static std::atomic<int> mode{0}; static std::atomic<bool> autoFraming{false}, zoomed{false}; // 0 Normal, 1 Night, 2 Depth
 // ---------- settings (Documents\AtomicKinection\settings.ini) ----------
+static std::atomic<double> framingUp{0.12}; // Auto Framing: raise the crop centre by this fraction of the crop height (FramingOffsetY)
 static std::atomic<double> micGainDb{18.0};
 // exposure: ExposureMode=semi|auto|manual, ExposureMs (semi max / manual time), AnalogGain 1-4 (manual), ExposureComp -2..2 (auto), Brightness 0.5-4 (digital, gamma-style lift)
 static std::string expMode = "semi"; static double expMs = 30, expGain = 2, expComp = 0; static std::atomic<double> brightness{1.0}; static std::atomic<int> expGen{0}; static std::mutex expMx;
@@ -59,6 +62,7 @@ static void ReadSettings() { std::lock_guard<std::mutex> lk(expMx);
     if (!_strnicmp(ln, "Mode=", 5)) mode = !_stricmp(ln + 5, "Night") ? 1 : !_stricmp(ln + 5, "Depth") ? 2 : 0;
     if (!_strnicmp(ln, "AutoFraming=", 12)) autoFraming = atoi(ln + 12) == 1;
     if (!_strnicmp(ln, "Zoom=", 5)) zoomed = !_stricmp(ln + 5, "Zoomed");
+    if (!_strnicmp(ln, "FramingOffsetY=", 15)) framingUp = std::max(-0.5, std::min(0.5, atof(ln + 15)));
     if (!_strnicmp(ln, "MicGainDb=", 10)) { double g = atof(ln + 10); if (g >= 0 && g <= 40) micGainDb = g; } } fclose(f); }
 
 // ---------- shared memory (same layout as the camera DLL's AkHeader) ----------
@@ -122,11 +126,25 @@ static void FaceThread() {
     for (int i = 0; i < faces.rows; i++) { float a = faces.at<float>(i, 2) * faces.at<float>(i, 3); if (a > area) { area = a; best = i; } }
     if (best >= 0) {
       double k = (double)W / SW, fx = (faces.at<float>(best, 0) + faces.at<float>(best, 2) / 2) * k, fy = (faces.at<float>(best, 1) + faces.at<float>(best, 3) / 2) * k, fh = faces.at<float>(best, 3) * k;
-      double h = std::max(H * 0.35, std::min(H * 0.8, fh * 2.8)), cy = fy + h * 0.15; // head-and-shoulders, always a visible crop
+      double h = std::max(H * 0.35, std::min(H * 0.8, fh * 2.8)), cy = fy + h * (0.15 - framingUp); // head-and-shoulders, always a visible crop
       std::lock_guard<std::mutex> g(tgtMx);
       if (fabs(fx - tX) > h * 0.06 || fabs(cy - tY) > h * 0.06 || fabs(h - tH) > h * 0.08 || lastFaceTick == 0) { tX = fx; tY = cy; tH = h; }
       lastFaceTick = GetTickCount64(); }
     Sleep(40); } }
+// Night/Depth decode on the graphics card (OpenCL, delay-loaded) when available; otherwise the CPU path.
+static bool oclBad = false; static std::atomic<int> gpuDepth{0};
+#ifdef LIBFREENECT2_WITH_OPENCL_SUPPORT
+static libfreenect2::PacketPipeline* NewOcl() { try { return new libfreenect2::OpenCLPacketPipeline(-1); } catch (...) { return nullptr; } } // OpenCL.dll presence checked first (delay-loaded)
+#endif
+static libfreenect2::PacketPipeline* MakePipeline(bool wantDepth) {
+#ifdef LIBFREENECT2_WITH_OPENCL_SUPPORT
+  if (wantDepth && !oclBad) {
+    if (!LoadLibraryW(L"OpenCL.dll")) { oclBad = true; Log("OpenCL not available - using CPU depth decoding"); }
+    else { libfreenect2::PacketPipeline* p = NewOcl();
+      if (p && p->getDepthPacketProcessor() && p->getDepthPacketProcessor()->good()) { if (gpuDepth != 1) Log("depth decoding on the graphics card (OpenCL)"); gpuDepth = 1; return p; }
+      delete p; oclBad = true; Log("OpenCL depth decoder failed to start - using CPU depth decoding"); } }
+#endif
+  if (wantDepth) gpuDepth = 0; return new libfreenect2::CpuPacketPipeline(); }
 static void Recorder_Push(const BYTE* frame); // recording tap
 static void Output() { // comp -> crop (Auto Framing / Zoomed / Wide) -> shared memory (virtual webcam) + recorder
   double gx = W / 2.0, gy = H / 2.0, gh = H;
@@ -242,8 +260,8 @@ static void WriteStatus() {
   double sq = levelSq.exchange(0); long long n = levelN.exchange(0); double db = n ? 10 * log10(sq / n + 1e-20) : -120;
   std::wstring rf; { std::lock_guard<std::mutex> g(recFileMx); rf = recFile; } char rf8[600]; WideCharToMultiByte(CP_UTF8, 0, rf.c_str(), -1, rf8, sizeof rf8, 0, 0);
   FILE* f = _wfopen((dataDir + L"\\status.txt").c_str(), L"w"); if (!f) return;
-  fprintf(f, "Kinect=%s\nFps=%.1f\nMode=%s\nAutoFraming=%s\nZoom=%s\nFaces=%d\nMicLevelDb=%.1f\nMicGainDb=%.1f\nDrops=%lld\nReconnects=%lld\nCorruptFrames=%lld\nExposureMs=%.1f\nRecording=%d\nRecSeconds=%.1f\nRecFile=%s\nResolution=%dx%d\nTick=%llu\n",
-    kinectOk ? "OK" : "Reconnecting", (double)curFps, ModeName(activeMode), !autoFraming ? "Off" : modelOk ? "On" : "NoModel", zoomed ? "Zoomed" : "Wide", (int)faceCount, db, (double)micGainDb,
+  fprintf(f, "GpuDepth=%d\nKinect=%s\nFps=%.1f\nMode=%s\nAutoFraming=%s\nZoom=%s\nFaces=%d\nMicLevelDb=%.1f\nMicGainDb=%.1f\nDrops=%lld\nReconnects=%lld\nCorruptFrames=%lld\nExposureMs=%.1f\nRecording=%d\nRecSeconds=%.1f\nRecFile=%s\nResolution=%dx%d\nTick=%llu\n",
+    (int)gpuDepth, kinectOk ? "OK" : "Reconnecting", (double)curFps, ModeName(activeMode), !autoFraming ? "Off" : modelOk ? "On" : "NoModel", zoomed ? "Zoomed" : "Wide", (int)faceCount, db, (double)micGainDb,
     (long long)drops, (long long)reconnects, (long long)jpegErrors, (double)frExp, (int)recOn, (double)recSecs, rf8, W, H, GetTickCount64()); fclose(f); }
 
 int wmain() {
@@ -252,7 +270,7 @@ int wmain() {
   SHGetKnownFolderPath(FOLDERID_Documents, 0, nullptr, &p); docsDir = std::wstring(p) + L"\\AtomicKinection"; CoTaskMemFree(p); CreateDirectoryW(docsDir.c_str(), nullptr);
   { wchar_t b[MAX_PATH]; GetModuleFileNameW(nullptr, b, MAX_PATH); exeDir = b; exeDir = exeDir.substr(0, exeDir.find_last_of(L'\\')); }
   DeleteFileW((dataDir + L"\\record.flag").c_str());
-  LF = _wfopen((dataDir + L"\\akfeed.log").c_str(), L"a"); Log("akfeed 1.3.0 started (libfreenect2: colour/IR/depth + Kinect mic + YuNet Auto Framing + MP4 recording; no Microsoft Kinect components)");
+  LF = _wfopen((dataDir + L"\\akfeed.log").c_str(), L"a"); Log("akfeed 1.3.2 started (libfreenect2: colour/IR/depth + Kinect mic + YuNet Auto Framing + MP4 recording; no Microsoft Kinect components)");
   ReadSettings(); if (!CreateShared()) return 1;
   static AkLogger akl; libfreenect2::setGlobalLogger(&akl);
   std::thread rt(RenderThread), ft(FaceThread), rec(RecorderThread);
@@ -262,12 +280,15 @@ int wmain() {
   bool planned = false;
   while (!quit) {
     // ---- connect: colour only in Normal; colour+IR+depth in Night/Depth ----
-    int m = mode; bool wantDepth = m != 0;
+    // With OpenCL, colour + IR + depth all stream all the time, so view switches never restart the Kinect
+    // (closing the OpenCL decoder on a switch crashed 1.3.2-dev). CPU fallback: depth only in Night/Depth.
+    int m = mode; bool wantDepth = true;
     libfreenect2::Freenect2 fn; libfreenect2::Freenect2Device* dev = nullptr;
-    if (fn.enumerateDevices() > 0) dev = fn.openDefaultDevice(new libfreenect2::CpuPacketPipeline());
+    if (fn.enumerateDevices() > 0) { libfreenect2::PacketPipeline* pp = MakePipeline(true); if (gpuDepth != 1) { delete pp; wantDepth = m != 0; pp = MakePipeline(wantDepth); } dev = fn.openDefaultDevice(pp); }
     if (!dev) { kinectOk = 0; if (hdr->magic == MAGIC) Stamp(); Sleep(2000); continue; }
+    const bool always = gpuDepth == 1;
     libfreenect2::SyncMultiFrameListener lisC(libfreenect2::Frame::Color), lisD(libfreenect2::Frame::Ir | libfreenect2::Frame::Depth);
-    if (!wantDepth) dev->setColorFrameListener(&lisC); else dev->setIrAndDepthFrameListener(&lisD);
+    if (always || !wantDepth) dev->setColorFrameListener(&lisC); if (wantDepth) dev->setIrAndDepthFrameListener(&lisD);
     if (!dev->startStreams(true, wantDepth)) { Log("start failed"); dev->close(); delete dev; Sleep(2000); continue; }
     activeMode = m;
     int appliedGen = -1;
@@ -288,17 +309,18 @@ int wmain() {
     kinectOk = 1; long long frames = 0, lastF = 0; ULONGLONG lastT = GetTickCount64(); long long lastPk = audPkts, lastJe = jpegErrors; libfreenect2::FrameMap fm; bool lost = false; planned = false;
     while (!quit && !lost) {
       if (appliedGen != expGen) applyExposure();
-      if ((mode != 0) != wantDepth) { Log("switching to %s view", ModeName(mode)); planned = true; break; }
-      if (!wantDepth && mode != activeMode) activeMode = (int)mode;
-      if (wantDepth && mode != activeMode) activeMode = (int)mode; // Night <-> Depth needs no restart
-      auto& lis = wantDepth ? lisD : lisC;
+      if (!always && (mode != 0) != wantDepth) { Log("switching to %s view", ModeName(mode)); planned = true; break; }
+      if (mode != activeMode) activeMode = (int)mode; // no restart needed
+      const bool col = activeMode == 0;
+      if (always) { libfreenect2::FrameMap om; auto& other = col ? lisD : lisC; if (other.hasNewFrame()) { other.waitForNewFrame(om, 0); other.release(om); } }
+      auto& lis = col ? lisC : lisD;
       if (lis.waitForNewFrame(fm, 3000)) {
-        if (!wantDepth) { auto c = fm[libfreenect2::Frame::Color]; if (c->width == W && c->height == H && c->bytes_per_pixel == 4) { ComposeColour(c->data); frExp = c->exposure; frGain = c->gain; } }
+        if (col) { auto c = fm[libfreenect2::Frame::Color]; if (c->width == W && c->height == H && c->bytes_per_pixel == 4) { ComposeColour(c->data); frExp = c->exposure; frGain = c->gain; } }
         else if (activeMode == 1) ComposeIr(fm[libfreenect2::Frame::Ir]); else ComposeDepth(fm[libfreenect2::Frame::Depth]);
         lis.release(fm); Output(); if (autoFraming && (frames % 2) == 0) Shrink(); frames++; }
-      else { Log("DROP: no %s frame for 3 s", wantDepth ? "depth" : "colour"); lost = true; }
+      else { Log("DROP: no %s frame for 3 s", col ? "colour" : "depth"); lost = true; }
       ULONGLONG now = GetTickCount64(); if (now - lastT >= 2000) { curFps = (frames - lastF) * 1000.0 / (now - lastT); lastF = frames; lastT = now;
-        long long je = jpegErrors; if (!wantDepth && je - lastJe >= 20) { Log("rgb: %lld corrupt frames in 2 s - restarting the Kinect stream", je - lastJe); lost = true; } lastJe = je;
+        long long je = jpegErrors; if (je - lastJe >= 20) { Log("rgb: %lld corrupt frames in 2 s - restarting the Kinect stream", je - lastJe); lost = true; } lastJe = je;
         long long pk = audPkts; if (pk == lastPk) Log("mic: no audio packets for 2 s"); lastPk = pk; }
     }
     if (!planned) { drops++; kinectOk = 0; Banner(); }

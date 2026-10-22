@@ -134,7 +134,7 @@ The webcam sends a non-mirrored picture. Many apps (the Windows Camera app, Team
 Pick **CABLE Output** as the microphone in the app, raise the mic slider, and check Windows hasn't made "CABLE Input" your default speakers.
 
 **Night vision / depth slower than colour**
-In 1.3.0 night vision and depth run at about 15 fps. Moving them to the graphics card (OpenCL) is in progress for 1.3.1.
+Since 1.3.2 night vision and depth are decoded on the graphics card (OpenCL) at 30 fps, with an automatic CPU fallback (about 15 fps) on PCs without OpenCL.
 
 ## Building from source
 
@@ -191,8 +191,13 @@ Built programs and libraries, the OpenCV/libfreenect2/libusb source trees, Zadig
 
 ## Changelog
 
-**1.3.x (in progress)**
-- 1.3.1 (not in this commit yet): night vision and depth moved to the graphics card (OpenCL) to reach 30 fps, and Auto Framing aims slightly higher.
+**1.3.2**
+- Night vision and Depth decoded on the graphics card (OpenCL, via libfreenect2's OpenCL depth decoder): 30 fps instead of about 15. Falls back to the CPU automatically when OpenCL isn't available.
+- With OpenCL, colour, IR and depth stream together, so switching views is instant with no Kinect restart. This also fixes a crash in the 1.3.2 test build when leaving Night/Depth.
+- Status file reports `GpuDepth`.
+
+**1.3.1**
+- Auto Framing aims a little higher (more headroom); adjustable with `FramingOffsetY=` in `settings.ini` (default 0.12).
 
 **1.3.0**
 - View mode buttons: Normal, Night vision (IR), Depth.

@@ -1,5 +1,5 @@
 @echo off
-echo Installing Atomic Kinection 1.3.0 (freeware) - click Yes on the admin prompt.
+echo Installing Atomic Kinection 1.3.2 (freeware) - click Yes on the admin prompt.
 powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process powershell -Verb RunAs -Wait -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File \"%~dp0Install-AtomicKinection.ps1\"'"
 if exist "%ProgramFiles%\AtomicKinection\akfeed.exe" start "" "%ProgramFiles%\AtomicKinection\akfeed.exe"
 if exist "%ProgramFiles%\AtomicKinection\AtomicKinection.exe" start "" "%ProgramFiles%\AtomicKinection\AtomicKinection.exe"
