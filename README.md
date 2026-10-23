@@ -176,7 +176,7 @@ Built programs and libraries, the OpenCV/libfreenect2/libusb source trees, Zadig
 
 ## Licence
 
-**LICENSE: to be chosen by owner.** No project licence has been chosen for Atomic Kinection's own code yet, so for now all rights are reserved. Third-party parts keep their own licences, listed in `THIRD-PARTY-NOTICES.txt` and `licenses/`.
+Atomic Kinection's own code is released under the [MIT License](LICENSE), Copyright (c) 2026 Trevor Jennings. Third-party parts keep their own licences, listed in `THIRD-PARTY-NOTICES.txt` and `licenses/`.
 
 ## Credits
 
