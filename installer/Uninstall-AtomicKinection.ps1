@@ -1,5 +1,12 @@
 # Atomic Kinection 1.3.2 - full uninstall (run via Uninstall-AtomicKinection.cmd; needs admin)
 & (Join-Path $PSScriptRoot 'camera\Uninstall-Camera.ps1')
+foreach ($dir in @(
+    [Environment]::GetFolderPath('CommonPrograms'),
+    [Environment]::GetFolderPath('CommonDesktopDirectory'))) {
+  if ([string]::IsNullOrWhiteSpace($dir)) { continue }
+  Remove-Item -LiteralPath (Join-Path $dir 'Atomic Kinection.lnk') -Force -ErrorAction SilentlyContinue
+}
+Write-Host 'Start menu and desktop shortcuts removed.'
 Remove-Item "$env:ProgramData\AtomicKinection" -Recurse -Force -ErrorAction SilentlyContinue
 Get-ChildItem 'C:\Users\*\AppData\Local\AtomicKinection' -Directory -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 # Put the Kinect's original Windows driver back: remove the libusbK packages Zadig made for the Kinect
