@@ -10,7 +10,7 @@ Atomic Kinection is freeware for Windows 10/11 (64-bit). The Kinect is driven by
 
 ## Features
 
-- **"Atomic Kinection" virtual webcam**: the Kinect colour camera at 1920×1080, 30 fps, not mirrored.
+- **"Atomic Kinection" virtual webcam**: the Kinect colour camera at 1920×1080, 30 fps.
 - **Kinect microphone**: the Kinect's mic array is read directly over USB and played into VB-CABLE, so apps can pick it as **CABLE Output (VB-Audio Virtual Cable)**. There's a mic volume (gain) slider.
 - **View modes**: Normal (colour), Night vision (infrared) and Depth (colour-coded distance). The chosen mode goes to both the preview and the webcam, and is remembered.
 - **Auto Framing**: follows your face (YuNet face detection via OpenCV) and keeps you framed.
