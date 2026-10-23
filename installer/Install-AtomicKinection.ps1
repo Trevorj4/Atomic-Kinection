@@ -35,6 +35,35 @@ else {
   Start-Sleep 3; $svc = Get-KinectService
   if ($svc -eq 'libusbK') { Write-Host 'Kinect driver set to libusbK.' -ForegroundColor Green } else { Write-Host "Kinect driver is '$svc', not libusbK - run the installer again and follow the Zadig steps." -ForegroundColor Red }
 }
+# 4) All-users Start menu and desktop shortcuts. The icon file is copied next to the exe
+#    so the shortcut has an icon even when AtomicKinection.exe was built without one embedded.
+$dst = Join-Path $env:ProgramFiles 'AtomicKinection'
+$exe = Join-Path $dst 'AtomicKinection.exe'
+$ico = Join-Path $dst 'AtomicKinection.ico'
+$icoSrc = Join-Path $here 'AtomicKinection.ico'
+if (Test-Path -LiteralPath $icoSrc) {
+  try { Copy-Item -LiteralPath $icoSrc -Destination $ico -Force }
+  catch { Write-Host "Could not copy the app icon: $($_.Exception.Message)" -ForegroundColor Yellow }
+} else { Write-Host 'AtomicKinection.ico was not found next to the installer; the shortcut will use the program icon.' -ForegroundColor Yellow }
+$madeShortcuts = $false
+if (Test-Path -LiteralPath $exe) {
+  $wsh = New-Object -ComObject WScript.Shell
+  foreach ($dir in @(
+      [Environment]::GetFolderPath('CommonPrograms'),
+      [Environment]::GetFolderPath('CommonDesktopDirectory'))) {
+    if ([string]::IsNullOrWhiteSpace($dir)) { continue }
+    if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+    $s = $wsh.CreateShortcut((Join-Path $dir 'Atomic Kinection.lnk'))
+    $s.TargetPath = $exe
+    $s.WorkingDirectory = $dst
+    $s.Description = 'Atomic Kinection'
+    if (Test-Path -LiteralPath $ico) { $s.IconLocation = "$ico,0" }
+    $s.Save()
+    $madeShortcuts = $true
+  }
+  if ($madeShortcuts) { Write-Host 'Start menu and desktop shortcuts created.' }
+}
 Write-Host ''
 Write-Host 'Atomic Kinection 1.3.2 installed.' -ForegroundColor Green
 Write-Host 'Camera: pick "Atomic Kinection".  Microphone: pick "CABLE Output (VB-Audio Virtual Cable)".'
+if ($madeShortcuts) { Write-Host 'Open Atomic Kinection from the Start menu or the desktop shortcut.' }

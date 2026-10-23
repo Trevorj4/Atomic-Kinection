@@ -31,6 +31,11 @@ namespace AtomicKinection {
     static string StatusFile => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AtomicKinection", "status.txt");
     public MainForm() {
       Text = "Atomic Kinection 1.3.2"; Width = 1280; Height = 820; Font = new Font("Segoe UI", 9.5f);
+      try {
+        var ico = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "AtomicKinection.ico");
+        if (File.Exists(ico)) Icon = new Icon(ico, 256, 256);
+        else { var emb = Icon.ExtractAssociatedIcon(Application.ExecutablePath); if (emb != null) Icon = emb; }
+      } catch { }
       var bar = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(4) };
       bar.Controls.AddRange(new Control[] { snapBtn, folderBtn, new Label { Text = "   Mic gain:", AutoSize = true, Padding = new Padding(0, 8, 0, 0) }, gain, gainLbl, new Label { Text = "Level:", AutoSize = true, Padding = new Padding(0, 8, 0, 0) }, meter });
       var modes = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(4) };

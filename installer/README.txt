@@ -23,10 +23,11 @@ INSTALL
    (USB ID 045E 02D8), choose libusbK, click Replace Driver, close Zadig.
    Note: while this driver is in place, Microsoft Kinect apps (Kinect SDK) cannot use the Kinect.
 4. VB-CABLE is installed automatically if missing (www.vb-cable.com - donationware).
+5. Start menu and desktop shortcuts named "Atomic Kinection" open the app.
 
 UNINSTALL
-Run Uninstall-AtomicKinection.cmd: removes the app and webcam, puts the Kinect's original
-Windows driver back, and offers to remove VB-CABLE.
+Run Uninstall-AtomicKinection.cmd: removes the app, webcam, and Start menu and desktop
+shortcuts, puts the Kinect's original Windows driver back, and offers to remove VB-CABLE.
 
 NOT YET IN 1.3.2 (planned): depth, infrared, 3D scanner, body/face tracking, Auto Framing.
 The 1.1.x versions (Microsoft Kinect SDK based) are in the Archive folder.
