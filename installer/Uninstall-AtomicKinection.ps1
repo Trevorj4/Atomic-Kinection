@@ -1,4 +1,4 @@
-# Atomic Kinection 1.3.4 - full uninstall (run via Uninstall-AtomicKinection.cmd; needs admin)
+# Atomic Kinection 1.3.5 - full uninstall (run via Uninstall-AtomicKinection.cmd; needs admin)
 & (Join-Path $PSScriptRoot 'camera\Uninstall-Camera.ps1')
 foreach ($dir in @(
     [Environment]::GetFolderPath('CommonPrograms'),

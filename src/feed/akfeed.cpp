@@ -1,4 +1,4 @@
-// Atomic Kinection 1.3.4 feed helper (akfeed.exe) - freeware, no Microsoft Kinect components.
+// Atomic Kinection 1.3.5 feed helper (akfeed.exe) - freeware, no Microsoft Kinect components.
 // Kinect v2 colour / IR / depth via libfreenect2 (libusbK) -> "Atomic Kinection" virtual camera (shared memory),
 // Kinect microphone array (USB audio interface 3) -> VB-CABLE "CABLE Input" (appears to apps as "CABLE Output").
 #define NOMINMAX
@@ -59,7 +59,7 @@ static std::atomic<int> mode{0}; static std::atomic<bool> autoFraming{false}, zo
 static std::atomic<double> framingUp{0.12}; // Auto Framing: raise the crop centre by this fraction of the crop height (FramingOffsetY)
 static std::atomic<double> micGainDb{18.0};
 // exposure: ExposureMode=semi|auto|manual, ExposureMs (semi max / manual time), AnalogGain 1-4 (manual), ExposureComp -2..2 (auto), Brightness 0.5-4 (digital, gamma-style lift)
-static std::string expMode = "semi"; static double expMs = 30, expGain = 2, expComp = 0; static std::atomic<double> brightness{1.0}; static std::atomic<int> expGen{0}; static std::mutex expMx;
+static std::string expMode = "auto"; static double expMs = 30, expGain = 2, expComp = 0; static std::atomic<double> brightness{1.0}; static std::atomic<int> expGen{0}; static std::mutex expMx;
 static void ReadSettings() { std::lock_guard<std::mutex> lk(expMx);
   FILE* f = _wfopen((docsDir + L"\\settings.ini").c_str(), L"r"); if (!f) return; char ln[256];
   while (fgets(ln, sizeof ln, f)) { char* e = ln + strlen(ln); while (e > ln && (e[-1] == '\n' || e[-1] == '\r' || e[-1] == ' ')) *--e = 0;
@@ -311,7 +311,7 @@ int wmain(int argc, wchar_t** argv) {
   SHGetKnownFolderPath(FOLDERID_Documents, 0, nullptr, &p); docsDir = std::wstring(p) + L"\\AtomicKinection"; CoTaskMemFree(p); CreateDirectoryW(docsDir.c_str(), nullptr);
   { wchar_t b[MAX_PATH]; GetModuleFileNameW(nullptr, b, MAX_PATH); exeDir = b; exeDir = exeDir.substr(0, exeDir.find_last_of(L'\\')); }
   DeleteFileW((dataDir + L"\\record.flag").c_str());
-  LF = _wfopen((dataDir + L"\\akfeed.log").c_str(), L"a"); Log("akfeed 1.3.4 started (libfreenect2: colour/IR/depth + Kinect mic + YuNet Auto Framing + MP4 recording; no Microsoft Kinect components)");
+  LF = _wfopen((dataDir + L"\\akfeed.log").c_str(), L"a"); Log("akfeed 1.3.5 started (libfreenect2: colour/IR/depth + Kinect mic + YuNet Auto Framing + MP4 recording; no Microsoft Kinect components)");
   ReadSettings(); if (!CreateShared()) { RequestQuit(); qw.join(); wt.join(); return 1; }
   static AkLogger akl; libfreenect2::setGlobalLogger(&akl);
   std::thread rt(RenderThread), ft(FaceThread), rec(RecorderThread);

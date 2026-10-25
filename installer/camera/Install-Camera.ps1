@@ -1,12 +1,24 @@
-# Installs Atomic Kinection 1.3.4 files + the "Atomic Kinection" webcam (needs admin)
+# Installs Atomic Kinection 1.3.5 files + the "Atomic Kinection" webcam (needs admin)
 $ErrorActionPreference = 'Stop'
 $src = Split-Path -Parent $PSScriptRoot
 $dst = "$env:ProgramFiles\AtomicKinection"
 New-Item -ItemType Directory -Force $dst | Out-Null
 New-Item -ItemType Directory -Force "$env:ProgramData\AtomicKinection" | Out-Null
 & icacls "$env:ProgramData\AtomicKinection" /grant "*S-1-1-0:(OI)(CI)M" | Out-Null
-if (Test-Path "$dst\akfeed.exe") { & "$dst\akfeed.exe" --stop | Out-Null } # ask a running feed to release the Kinect first
-Get-Process AtomicKinection,akfeed -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "$dst*" } | Stop-Process -Force
+# 1.3.5: stop any running app/feed by name first (no path filter). 1.3.3 feeds don't know --stop:
+# they start a new feed and never exit, which hung the installer.
+Get-Process AtomicKinection,akfeed -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+if (Test-Path "$dst\akfeed.exe") {
+  $iv = $null
+  try { $iv = [version](Get-Item "$dst\akfeed.exe").VersionInfo.FileVersion } catch { }
+  if ($iv -and $iv -ge [version]'1.3.4') {
+    try {
+      $p = Start-Process -FilePath "$dst\akfeed.exe" -ArgumentList '--stop' -WindowStyle Hidden -PassThru
+      if (-not $p.WaitForExit(5000)) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
+    } catch { }
+  }
+}
+Get-Process AtomicKinection,akfeed -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 Start-Sleep 1
 Stop-Service FrameServer -Force -ErrorAction SilentlyContinue
 # 1.1.x left Microsoft Kinect SDK DLLs here - 1.3.2 does not use them

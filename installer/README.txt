@@ -1,4 +1,4 @@
-ATOMIC KINECTION v1.3.4 - Kinect v2 (Xbox One / Kinect for Windows v2) webcam + microphone
+ATOMIC KINECTION v1.3.5 - Kinect v2 (Xbox One / Kinect for Windows v2) webcam + microphone
 Freeware. No Microsoft Kinect software, runtime or driver is used.
 ==========================================================================================
 
@@ -29,7 +29,7 @@ UNINSTALL
 Run Uninstall-AtomicKinection.cmd: removes the app, webcam, and Start menu and desktop
 shortcuts, puts the Kinect's original Windows driver back, and offers to remove VB-CABLE.
 
-NOT YET IN 1.3.4 (planned): depth, infrared, 3D scanner, body/face tracking, Auto Framing.
+NOT YET IN 1.3.5 (planned): depth, infrared, 3D scanner, body/face tracking, Auto Framing.
 The 1.1.x versions (Microsoft Kinect SDK based) are in the Archive folder.
 
 Licences: see THIRD-PARTY-NOTICES.txt and the licenses folder. Source code is in src\.

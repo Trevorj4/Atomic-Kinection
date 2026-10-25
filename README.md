@@ -100,7 +100,7 @@ Whatever mode you pick is what the webcam sends to other apps and what gets reco
 | `Zoom=` | `Zoomed` / `Wide` | Zoom state. |
 | `MicGainDb=` | `0`–`40` (default `18`) | Kinect mic gain in dB. |
 | `Brightness=` | `0.5`–`4` (default `1.0`) | Digital brightness lift (gamma-style). `1.3`–`2.0` suits dim rooms. |
-| `ExposureMode=` | `semi` / `auto` / `manual` (default `semi`) | Colour camera exposure mode. |
+| `ExposureMode=` | `semi` / `auto` / `manual` (default `auto`) | Colour camera exposure mode. |
 | `ExposureMs=` | `1`–`66` (default `30`) | Max exposure time (semi) or fixed time (manual), in ms. |
 | `AnalogGain=` | `1`–`4` (default `2`) | Sensor gain in manual mode. |
 | `ExposureComp=` | `-2`–`2` (default `0`) | Exposure compensation in auto mode. |
@@ -125,7 +125,7 @@ Usually seen after the PC wakes from sleep. 1.2.1 and later skip these frames an
 The Kinect v2 is fussy about USB 3 controllers. Some ASMedia (and some older Renesas/Etron) controllers give dropped or corrupt frames or don't work at all. Use a port on the motherboard's own Intel or AMD USB 3 controller, plugged in directly. Device Manager > View > Devices by connection shows which controller a port belongs to.
 
 **Picture too dark or too bright**
-Change `Brightness=` in `settings.ini` (try `1.3`–`2.0`) and the change shows up straight away. Keep `ExposureMs=` at 33 or below to hold 30 fps.
+Since 1.3.5 the colour camera uses full auto exposure (`ExposureMode=auto`) by default, with brightness 1.0. If the picture is still too dark or too bright, drag the **Brightness** slider (0.5x–2.0x, beside the Record button) or set `Brightness=` in `settings.ini`; the change shows up straight away, no restart needed. `ExposureComp=` (`-2`–`2`) also nudges auto exposure. To go back to the old capped mode, set `ExposureMode=semi` and keep `ExposureMs=` at 33 or below to hold 30 fps.
 
 **Picture looks mirrored**
 The webcam sends a non-mirrored picture. Many apps (the Windows Camera app, Teams, Zoom, WhatsApp) mirror **your own self-view** on your screen, but the people on the call see it the right way round. Check with text on a shirt or a sign, or look at a recording.
@@ -190,6 +190,11 @@ Atomic Kinection's own code is released under the [MIT License](LICENSE), Copyri
 - VCamSample: basis of the virtual webcam (see `licenses/LICENSE-VCamSample.txt`)
 
 ## Changelog
+
+**1.3.5**
+- Auto exposure is now the default (`ExposureMode=auto`, `Brightness=1.0`, `ExposureComp=0`), so new installs start with a bright picture. Existing `settings.ini` values are kept.
+- New **Brightness** slider beside the Record button (0.5x–2.0x in 0.1 steps, default 1.0x). It writes `Brightness=` to `settings.ini` and the feed picks it up live.
+- Installer no longer hangs when upgrading from 1.3.3: it force-stops any running Atomic Kinection / `akfeed.exe` by name first, and only asks the installed feed to `--stop` if it is 1.3.4 or later, with a 5 s timeout.
 
 **1.3.4**
 - Closing the window now releases the Kinect: the app tells `akfeed.exe` to stop its streams, close the Kinect and its USB handles, join its threads and exit (it is killed only if it hasn't exited after 8 s).
