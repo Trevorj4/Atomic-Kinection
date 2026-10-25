@@ -1,8 +1,8 @@
-# Atomic Kinection 1.3.2 - full installer (run via Install-AtomicKinection.cmd; needs admin). Freeware.
+# Atomic Kinection 1.3.4 - full installer (run via Install-AtomicKinection.cmd; needs admin). Freeware.
 # No Microsoft Kinect software is used. The Kinect is driven by libfreenect2 over the libusbK driver.
 $ErrorActionPreference = 'Stop'
 $here = $PSScriptRoot
-Write-Host 'Atomic Kinection 1.3.2 installer' -ForegroundColor Cyan
+Write-Host 'Atomic Kinection 1.3.4 installer' -ForegroundColor Cyan
 
 # 1) App, feed helper and virtual webcam
 & (Join-Path $here 'camera\Install-Camera.ps1')
@@ -64,6 +64,6 @@ if (Test-Path -LiteralPath $exe) {
   if ($madeShortcuts) { Write-Host 'Start menu and desktop shortcuts created.' }
 }
 Write-Host ''
-Write-Host 'Atomic Kinection 1.3.2 installed.' -ForegroundColor Green
+Write-Host 'Atomic Kinection 1.3.4 installed.' -ForegroundColor Green
 Write-Host 'Camera: pick "Atomic Kinection".  Microphone: pick "CABLE Output (VB-Audio Virtual Cable)".'
 if ($madeShortcuts) { Write-Host 'Open Atomic Kinection from the Start menu or the desktop shortcut.' }

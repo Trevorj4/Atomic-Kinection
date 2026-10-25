@@ -1,6 +1,6 @@
 1 VERSIONINFO
-FILEVERSION 1,3,2,0
-PRODUCTVERSION 1,3,2,0
+FILEVERSION 1,3,4,0
+PRODUCTVERSION 1,3,4,0
 FILEOS 0x40004
 FILETYPE 1
 BEGIN
@@ -10,9 +10,9 @@ BEGIN
   BEGIN
    VALUE "CompanyName", "Atomic Kinection"
    VALUE "FileDescription", "Atomic Kinection Kinect feed (camera + mic)"
-   VALUE "FileVersion", "1.3.2.0"
+   VALUE "FileVersion", "1.3.4.0"
    VALUE "ProductName", "Atomic Kinection"
-   VALUE "ProductVersion", "1.3.2"
+   VALUE "ProductVersion", "1.3.4"
    VALUE "LegalCopyright", "Freeware"
    VALUE "OriginalFilename", "akfeed.exe"
   END

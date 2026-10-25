@@ -18,7 +18,7 @@ Atomic Kinection is freeware for Windows 10/11 (64-bit). The Kinect is driven by
 - **Record / Stop**: records exactly what the webcam shows (1920×1080, 30 fps) with the Kinect mic, as MP4 (H.264 + AAC), with a red REC timer.
 - **Snapshots** to `Documents\AtomicKinection`.
 - **Auto-reconnect**: if the Kinect drops out, the webcam shows the last picture with a red bar and restarts by itself when the Kinect comes back. Corrupt colour frames are skipped quietly, and the stream restarts itself if they pile up.
-- Runs in the background from sign-in (`akfeed.exe`), so the camera and mic work with the window closed.
+- The Kinect feed (`akfeed.exe`) runs while the Atomic Kinection window is open. Closing the window stops the streams and lets go of the Kinect, so other apps can use it.
 
 ## Requirements
 
@@ -190,6 +190,12 @@ Atomic Kinection's own code is released under the [MIT License](LICENSE), Copyri
 - VCamSample: basis of the virtual webcam (see `licenses/LICENSE-VCamSample.txt`)
 
 ## Changelog
+
+**1.3.4**
+- Closing the window now releases the Kinect: the app tells `akfeed.exe` to stop its streams, close the Kinect and its USB handles, join its threads and exit (it is killed only if it hasn't exited after 8 s).
+- `akfeed.exe` also shuts down cleanly on Ctrl+C / console close, sign-out and shutdown (WM_ENDSESSION), `taskkill` without `/f`, and `akfeed.exe --stop`. After a crash it stops the Kinect before exiting.
+- The feed no longer starts at sign-in (the installer removes the old sign-in entry), and it is not restarted while the window is closing.
+- Fixed a small leak of the mic's USB transfers on every reconnect.
 
 **1.3.2**
 - Night vision and Depth decoded on the graphics card (OpenCL, via libfreenect2's OpenCL depth decoder): 30 fps instead of about 15. Falls back to the CPU automatically when OpenCL isn't available.

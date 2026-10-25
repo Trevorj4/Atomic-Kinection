@@ -1,4 +1,4 @@
-ATOMIC KINECTION 1.3.2 - THIRD-PARTY NOTICES
+ATOMIC KINECTION 1.3.4 - THIRD-PARTY NOTICES
 Atomic Kinection is freeware. It includes or uses the following third-party components.
 Full licence texts are in the "licenses" folder.
 

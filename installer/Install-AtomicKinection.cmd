@@ -1,7 +1,6 @@
 @echo off
-echo Installing Atomic Kinection 1.3.2 (freeware) - click Yes on the admin prompt.
+echo Installing Atomic Kinection 1.3.4 (freeware) - click Yes on the admin prompt.
 powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process powershell -Verb RunAs -Wait -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File \"%~dp0Install-AtomicKinection.ps1\"'"
-if exist "%ProgramFiles%\AtomicKinection\akfeed.exe" start "" "%ProgramFiles%\AtomicKinection\akfeed.exe"
 if exist "%ProgramFiles%\AtomicKinection\AtomicKinection.exe" start "" "%ProgramFiles%\AtomicKinection\AtomicKinection.exe"
 echo Done. Open Atomic Kinection from the Start menu or the desktop shortcut.
 echo Camera: "Atomic Kinection". Microphone: "CABLE Output (VB-Audio Virtual Cable)".

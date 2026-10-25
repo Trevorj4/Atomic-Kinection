@@ -8,7 +8,7 @@ using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 namespace AtomicKinection {
-  /// <summary>Atomic Kinection 1.3.2 window: live preview of the Kinect feed (from akfeed.exe), snapshots and the mic gain.</summary>
+  /// <summary>Atomic Kinection 1.3.4 window: live preview of the Kinect feed (from akfeed.exe), snapshots and the mic gain.</summary>
   public sealed class MainForm : Form {
     const int W = 1920, H = 1080, Header = 64; const uint Magic = 0x314B4B41;
     readonly PictureBox view = new PictureBox { Dock = DockStyle.Fill, SizeMode = PictureBoxSizeMode.Zoom, BackColor = Color.Black };
@@ -30,7 +30,7 @@ namespace AtomicKinection {
     static string SettingsFile => Path.Combine(OutDir, "settings.ini");
     static string StatusFile => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AtomicKinection", "status.txt");
     public MainForm() {
-      Text = "Atomic Kinection 1.3.2"; Width = 1280; Height = 820; Font = new Font("Segoe UI", 9.5f);
+      Text = "Atomic Kinection 1.3.4"; Width = 1280; Height = 820; Font = new Font("Segoe UI", 9.5f);
       try {
         var ico = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "AtomicKinection.ico");
         if (File.Exists(ico)) Icon = new Icon(ico, 256, 256);
@@ -79,7 +79,23 @@ namespace AtomicKinection {
         File.WriteAllLines(SettingsFile, lines);
       } catch { }
     }
+    static volatile bool closing; // 1.3.4: set once the window is closing so the feed is not restarted
+    protected override void OnFormClosing(FormClosingEventArgs e) {
+      base.OnFormClosing(e); if (e.Cancel) return;
+      closing = true; timer.Stop();
+      try { acc?.Dispose(); mmf?.Dispose(); } catch { } acc = null; mmf = null;
+      StopFeed();
+    }
+    /// <summary>1.3.4: tells akfeed.exe to stop its streams and close the Kinect, waits for it to exit, and kills it only as a last resort.</summary>
+    public static void StopFeed() {
+      closing = true;
+      try { if (System.Threading.EventWaitHandle.TryOpenExisting(@"Local\AtomicKinectionFeedQuit", out var ev)) using (ev) ev.Set(); } catch { }
+      foreach (var p in Process.GetProcessesByName("akfeed")) {
+        try { if (!p.WaitForExit(8000)) { p.Kill(); p.WaitForExit(2000); } } catch { } finally { p.Dispose(); }
+      }
+    }
     static void EnsureFeed() {
+      if (closing) return;
       if (Process.GetProcessesByName("akfeed").Length > 0) return;
       var exe = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "akfeed.exe");
       if (File.Exists(exe)) try { Process.Start(new ProcessStartInfo(exe) { UseShellExecute = false, CreateNoWindow = true }); } catch { }
