@@ -10,7 +10,7 @@ Atomic Kinection is freeware for Windows 10/11 (64-bit). The Kinect is driven by
 
 ## Features
 
-- **"Atomic Kinection" virtual webcam**: the Kinect colour camera at 1920×1080, 30 fps.
+- **"Atomic Kinection" virtual webcam**: the Kinect colour camera at 1920×1080, 30 fps, in true orientation (text reads correctly). Night vision and depth use the same orientation.
 - **Kinect microphone**: the Kinect's mic array is read directly over USB and played into VB-CABLE, so apps can pick it as **CABLE Output (VB-Audio Virtual Cable)**. There's a mic volume (gain) slider.
 - **View modes**: Normal (colour), Night vision (infrared) and Depth (colour-coded distance). The chosen mode goes to both the preview and the webcam, and is remembered.
 - **Auto Framing**: follows your face (YuNet face detection via OpenCV) and keeps you framed.
@@ -128,7 +128,7 @@ The Kinect v2 is fussy about USB 3 controllers. Some ASMedia (and some older Ren
 Since 1.3.5 the colour camera uses full auto exposure (`ExposureMode=auto`) by default, with brightness 1.0. If the picture is still too dark or too bright, drag the **Brightness** slider (0.5x–2.0x, beside the Record button) or set `Brightness=` in `settings.ini`; the change shows up straight away, no restart needed. `ExposureComp=` (`-2`–`2`) also nudges auto exposure. To go back to the old capped mode, set `ExposureMode=semi` and keep `ExposureMs=` at 33 or below to hold 30 fps.
 
 **Picture looks mirrored**
-The webcam sends a non-mirrored picture. Many apps (the Windows Camera app, Teams, Zoom, WhatsApp) mirror **your own self-view** on your screen, but the people on the call see it the right way round. Check with text on a shirt or a sign, or look at a recording.
+1.3.6 publishes the picture in true orientation. Text reads correctly in the Atomic Kinection window, in the virtual camera, and in recordings, for colour, night vision and depth together. Many apps (the Windows Camera app, Teams, Zoom, WhatsApp) still mirror **your own self-view** on your screen; the people on the call see the orientation Atomic Kinection publishes. Check with text on a sign in the Atomic Kinection window or in a recording, not only in the other app's preview.
 
 **No mic sound in the call**
 Pick **CABLE Output** as the microphone in the app, raise the mic slider, and check Windows hasn't made "CABLE Input" your default speakers.
@@ -152,6 +152,8 @@ Tested with **Visual Studio 2026 Community** (x64 native tools), CMake and Ninja
 6. **Build the virtual camera**: open `src/camera/AtomicKinectionCamSource/AtomicKinectionCamSource.vcxproj` in Visual Studio (Release x64). CamSetup is a single file: `cl /EHsc /O2 CamSetup.cpp` plus its `.rc`.
 7. **Package**: put the outputs together with the files in `installer/`, `models/`, `licenses/` and `THIRD-PARTY-NOTICES.txt` in the release layout described in `installer/README.md`, then add Zadig 2.9 and the VB-CABLE driver pack (downloaded from their official sites).
 
+Host checks that do not need a Kinect or Visual Studio: `tests/run.sh` (orientation, shutdown order, and that the version fields and the single `libusb_exit` agree). The Windows build above is unchanged: VS 2026, `AKDEPS`, static `/MT`.
+
 ## Project layout
 
 ```
@@ -162,6 +164,7 @@ src/camera/               Media Foundation virtual camera (CamSource DLL, based 
                           and CamSetup.exe (registers/unregisters the camera)
 src/kaudio/               Kinect USB audio prototypes and test tools used during development
 libfreenect2-patches/     Our modified libfreenect2 source files
+tests/                    Host checks (no Kinect, no Visual Studio): tests/run.sh
 deps/                     Scripts and notes for building OpenCV and libfreenect2
 build/                    Build script for akfeed + the app
 installer/                Install/uninstall scripts and the release-zip layout
@@ -190,6 +193,11 @@ Atomic Kinection's own code is released under the [MIT License](LICENSE), Copyri
 - VCamSample: basis of the virtual webcam (see `licenses/LICENSE-VCamSample.txt`)
 
 ## Changelog
+
+**1.3.6**
+- Closing the window no longer fail-fasts `akfeed.exe` (`0xC0000409`). The feed and the microphone share one libusb context, and that context is shut down once, after the Kinect's USB interfaces are closed. Listener frames are released before the device is deleted, so OpenCL depth buffers go back to an allocator that still exists. A fatal error still tries to stop the Kinect. `akfeed.exe` then joins its threads and exits 0.
+- The picture is not flipped left-right. Colour, night vision and depth stay in one orientation (sensor-left on the left) in the preview, the virtual camera and recordings.
+- Version resources match the release, including `akfeed.rc`'s numeric `FILEVERSION` / `PRODUCTVERSION` (`1.3.6.0`). Windows Error Reporting was still reporting 1.3.5 as 1.3.4.0.
 
 **1.3.5**
 - Auto exposure is now the default (`ExposureMode=auto`, `Brightness=1.0`, `ExposureComp=0`), so new installs start with a bright picture. Existing `settings.ini` values are kept.

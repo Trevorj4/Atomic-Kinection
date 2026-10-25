@@ -1,6 +1,6 @@
 # Installer scripts and release layout
 
-Installer version **1.3.5** (`VERSION.txt`).
+Installer version **1.3.6** (`VERSION.txt`).
 
 The release zip (`AtomicKinection-vX.Y.Z`) is laid out like this. Items marked *(not in git)* are built or downloaded.
 

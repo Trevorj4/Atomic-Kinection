@@ -1,4 +1,4 @@
-# Installs Atomic Kinection 1.3.5 files + the "Atomic Kinection" webcam (needs admin)
+# Installs Atomic Kinection 1.3.6 files + the "Atomic Kinection" webcam (needs admin)
 $ErrorActionPreference = 'Stop'
 $src = Split-Path -Parent $PSScriptRoot
 $dst = "$env:ProgramFiles\AtomicKinection"

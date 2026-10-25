@@ -8,7 +8,7 @@ using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 namespace AtomicKinection {
-  /// <summary>Atomic Kinection 1.3.5 window: live preview of the Kinect feed (from akfeed.exe), snapshots, the mic gain and brightness.</summary>
+  /// <summary>Atomic Kinection 1.3.6 window: live preview of the Kinect feed (from akfeed.exe), snapshots, the mic gain and brightness.</summary>
   public sealed class MainForm : Form {
     const int W = 1920, H = 1080, Header = 64; const uint Magic = 0x314B4B41;
     readonly PictureBox view = new PictureBox { Dock = DockStyle.Fill, SizeMode = PictureBoxSizeMode.Zoom, BackColor = Color.Black };
@@ -33,7 +33,7 @@ namespace AtomicKinection {
     static string SettingsFile => Path.Combine(OutDir, "settings.ini");
     static string StatusFile => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AtomicKinection", "status.txt");
     public MainForm() {
-      Text = "Atomic Kinection 1.3.5"; Width = 1280; Height = 820; Font = new Font("Segoe UI", 9.5f);
+      Text = "Atomic Kinection 1.3.6"; Width = 1280; Height = 820; Font = new Font("Segoe UI", 9.5f);
       try {
         var ico = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "AtomicKinection.ico");
         if (File.Exists(ico)) Icon = new Icon(ico, 256, 256);

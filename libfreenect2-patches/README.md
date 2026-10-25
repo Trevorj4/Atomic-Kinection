@@ -4,7 +4,7 @@ Modified copies of four libfreenect2 (`master`) source files. Copy them over the
 
 - `src/libfreenect2.cpp`: removes the UsbDk option call (we use libusbK) and adds an optional colour-only mode (`AK_RGB_ONLY` environment variable, off by default).
 - `src/usb_control.cpp`: modified alongside the above for Atomic Kinection.
-- `src/opencl_depth_packet_processor.cpp`, `src/opencl_kde_depth_packet_processor.cpp`: one-line build fix (`#undef CL_ICDL_VERSION`) because current Khronos OpenCL headers define that name as a macro.
+- `src/opencl_depth_packet_processor.cpp`, `src/opencl_kde_depth_packet_processor.cpp`: one-line build fix (`#undef CL_ICDL_VERSION`) because current Khronos OpenCL headers define that name as a macro. The OpenCL frame destructors also catch `cl::Error`. The Khronos `CL/cl.hpp` wrapper turns exceptions on, and a throw from `enqueueUnmapMemObject` inside `~OpenCLFrame` / `~OpenCLKdeFrame` (both `noexcept`) calls `std::terminate`. akfeed releases listener frames before it deletes the device; the catch is there so a late unmap still cannot abort the process.
 
 Also raise `cmake_minimum_required` in libfreenect2's top-level `CMakeLists.txt` to 3.5 for current CMake.
 
