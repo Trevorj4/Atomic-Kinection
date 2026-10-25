@@ -134,8 +134,11 @@ public:
   {
     if(b == NULL)
       return;
-    release_opencl(static_cast<OpenCLBuffer *>(b));
-    delete b;
+    // enqueueUnmapMemObject throws cl::Error when the C++ bindings have exceptions on
+    // (the Khronos cl.hpp wrapper defines __CL_ENABLE_EXCEPTIONS). A throw here used to
+    // escape ~OpenCLFrame, which is noexcept, and abort the process.
+    try { release_opencl(static_cast<OpenCLBuffer *>(b)); } catch (...) {}
+    try { delete b; } catch (...) {}
   }
 };
 
@@ -154,7 +157,11 @@ public:
 
   virtual ~OpenCLFrame()
   {
-    buffer->allocator->free(buffer);
+    try {
+      if (buffer != 0 && buffer->allocator != 0)
+        buffer->allocator->free(buffer);
+    } catch (...) {}
+    buffer = 0;
     data = NULL;
   }
 };

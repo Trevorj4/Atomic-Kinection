@@ -1,4 +1,4 @@
-// Atomic Kinection 1.3.2 feed helper (akfeed.exe) - freeware, no Microsoft Kinect components.
+// Atomic Kinection 1.3.6 feed helper (akfeed.exe) - freeware, no Microsoft Kinect components.
 // Kinect v2 colour / IR / depth via libfreenect2 (libusbK) -> "Atomic Kinection" virtual camera (shared memory),
 // Kinect microphone array (USB audio interface 3) -> VB-CABLE "CABLE Input" (appears to apps as "CABLE Output").
 #define NOMINMAX
@@ -29,7 +29,17 @@
 #include <opencv2/core.hpp>
 #include <opencv2/imgproc.hpp>
 #include <opencv2/objdetect.hpp>
+#include <exception>
+#include "frame_orient.h"
+#include "shutdown_order.h"
 static std::atomic<bool> quit{false};
+// 1.3.4: clean shutdown. The feed stops (and lets go of the Kinect) when the Atomic Kinection window closes
+// (the app sets this event), on akfeed.exe --stop, Ctrl+C / console close, sign-out / shutdown (WM_ENDSESSION) and on a crash.
+static const wchar_t* QUIT_EVENT = L"Local\\AtomicKinectionFeedQuit";
+static HANDLE quitEvt = nullptr, doneEvt = nullptr; // doneEvt: set once the Kinect is closed and threads are joined
+static libfreenect2::Freenect2Device* volatile gDev = nullptr; // current device, for the crash handler
+static void RequestQuit() { quit = true; if (quitEvt) SetEvent(quitEvt); }
+static void Nap(DWORD ms) { if (quitEvt) WaitForSingleObject(quitEvt, ms); else Sleep(ms); } // a Sleep that wakes up on quit
 
 static const int W = 1920, H = 1080, HDR = 64; static const UINT32 MAGIC = 0x314B4B41;
 static std::wstring dataDir, docsDir; static FILE* LF;
@@ -51,7 +61,7 @@ static std::atomic<int> mode{0}; static std::atomic<bool> autoFraming{false}, zo
 static std::atomic<double> framingUp{0.12}; // Auto Framing: raise the crop centre by this fraction of the crop height (FramingOffsetY)
 static std::atomic<double> micGainDb{18.0};
 // exposure: ExposureMode=semi|auto|manual, ExposureMs (semi max / manual time), AnalogGain 1-4 (manual), ExposureComp -2..2 (auto), Brightness 0.5-4 (digital, gamma-style lift)
-static std::string expMode = "semi"; static double expMs = 30, expGain = 2, expComp = 0; static std::atomic<double> brightness{1.0}; static std::atomic<int> expGen{0}; static std::mutex expMx;
+static std::string expMode = "auto"; static double expMs = 30, expGain = 2, expComp = 0; static std::atomic<double> brightness{1.0}; static std::atomic<int> expGen{0}; static std::mutex expMx;
 static void ReadSettings() { std::lock_guard<std::mutex> lk(expMx);
   FILE* f = _wfopen((docsDir + L"\\settings.ini").c_str(), L"r"); if (!f) return; char ln[256];
   while (fgets(ln, sizeof ln, f)) { char* e = ln + strlen(ln); while (e > ln && (e[-1] == '\n' || e[-1] == '\r' || e[-1] == ' ')) *--e = 0;
@@ -80,29 +90,34 @@ static void Publish() { // caller has filled view+HDR
 static void Stamp() { InterlockedExchange64(&hdr->producerTick, (LONGLONG)GetTickCount64()); }
 // ---------- modes: Normal colour / Night vision (IR) / Depth; Auto Framing (YuNet) and Wide/Zoomed crop for all modes ----------
 static const char* ModeName(int m) { return m == 1 ? "Night" : m == 2 ? "Depth" : "Normal"; }
-static cv::Mat comp(H, W, CV_8UC4); // composed, un-mirrored frame of the current mode
+static cv::Mat comp(H, W, CV_8UC4); // composed frame of the current mode (true left-right orientation)
 static BYTE lut[256]; static double lutFor = -1;
 template <class F> static void ParRows(int h, F f) { const int NT = 8; std::thread t[NT - 1]; for (int i = 1; i < NT; i++) t[i - 1] = std::thread(f, h * i / NT, h * (i + 1) / NT); f(0, h / NT); for (auto& x : t) x.join(); }
-static void ComposeColour(const BYTE* src) { // mirrored BGRX -> un-mirrored + brightness lift
+static void ComposeColour(const BYTE* src) { // sensor order (no left-right flip) + brightness lift
   double br = brightness; if (br != lutFor) { lutFor = br; double gm = 1.0 / br; for (int i = 0; i < 256; i++) lut[i] = (BYTE)std::min(255.0, 255.0 * pow(i / 255.0, gm) + 0.5); }
   BYTE* dst = comp.data;
-  ParRows(H, [&](int y0, int y1) { for (int y = y0; y < y1; y++) { const BYTE* s = src + y * W * 4; BYTE* d = dst + y * W * 4;
-    for (int x = 0; x < W; x++) { const BYTE* p = s + (W - 1 - x) * 4; BYTE* q = d + x * 4; q[0] = lut[p[0]]; q[1] = lut[p[1]]; q[2] = lut[p[2]]; q[3] = 255; } } }); }
+  ParRows(H, [&](int y0, int y1) { for (int y = y0; y < y1; y++) CopyBgraRow(src + (size_t)y * W * 4, dst + (size_t)y * W * 4, W, kMirrorFeed, lut); }); }
 static double irMax = 4000;
+// IR and depth are 512x424 float frames. Flip only when kMirrorFeed is set, so they match colour.
+static cv::Mat FeedFloat(const libfreenect2::Frame* f) {
+  cv::Mat src((int)f->height, (int)f->width, CV_32FC1, f->data);
+  if (!kMirrorFeed) return src;
+  cv::Mat flipped; cv::flip(src, flipped, 1); return flipped;
+}
 static void FitInto(const cv::Mat& small) { // 512x424 BGR(A) -> pillar-boxed 1920x1080, high-quality upscale
   int fw = (int)(small.cols * (double)H / small.rows + 0.5); int x0 = (W - fw) / 2; comp.setTo(cv::Scalar(0, 0, 0, 255));
   cv::Mat big; cv::resize(small, big, cv::Size(fw, H), 0, 0, cv::INTER_CUBIC); if (big.channels() == 3) cv::cvtColor(big, big, cv::COLOR_BGR2BGRA); big.copyTo(comp(cv::Rect(x0, 0, fw, H))); }
-static void ComposeIr(const libfreenect2::Frame* f) {
-  cv::Mat ir((int)f->height, (int)f->width, CV_32FC1, f->data); cv::Mat flip; cv::flip(ir, flip, 1);
-  std::vector<float> smp; smp.reserve(4000); for (int i = 0; i < flip.rows * flip.cols; i += 53) smp.push_back(flip.at<float>(i / flip.cols, i % flip.cols));
+static void ComposeIr(const libfreenect2::Frame* f) { // same left-right orientation as colour
+  cv::Mat ir = FeedFloat(f);
+  std::vector<float> smp; smp.reserve(4000); for (int i = 0; i < ir.rows * ir.cols; i += 53) smp.push_back(ir.at<float>(i / ir.cols, i % ir.cols));
   std::nth_element(smp.begin(), smp.begin() + smp.size() * 99 / 100, smp.end()); double p99 = std::max(500.0, (double)smp[smp.size() * 99 / 100]); irMax += (p99 - irMax) * 0.1; // auto level
-  cv::Mat g(flip.size(), CV_8UC1); for (int y = 0; y < flip.rows; y++) { const float* s = flip.ptr<float>(y); BYTE* d = g.ptr<BYTE>(y); for (int x = 0; x < flip.cols; x++) d[x] = (BYTE)std::min(255.0, 255.0 * sqrt(std::max(0.0f, s[x]) / irMax)); }
+  cv::Mat g(ir.size(), CV_8UC1); for (int y = 0; y < ir.rows; y++) { const float* s = ir.ptr<float>(y); BYTE* d = g.ptr<BYTE>(y); for (int x = 0; x < ir.cols; x++) d[x] = (BYTE)std::min(255.0, 255.0 * sqrt(std::max(0.0f, s[x]) / irMax)); }
   cv::Mat bgr; cv::cvtColor(g, bgr, cv::COLOR_GRAY2BGR); FitInto(bgr); }
 static void ComposeDepth(const libfreenect2::Frame* f) {
-  cv::Mat dm((int)f->height, (int)f->width, CV_32FC1, f->data); cv::Mat flip; cv::flip(dm, flip, 1);
-  cv::Mat g(flip.size(), CV_8UC1), valid(flip.size(), CV_8UC1);
-  for (int y = 0; y < flip.rows; y++) { const float* s = flip.ptr<float>(y); BYTE* d = g.ptr<BYTE>(y); BYTE* v = valid.ptr<BYTE>(y);
-    for (int x = 0; x < flip.cols; x++) { float mm = s[x]; v[x] = mm > 0 ? 255 : 0; d[x] = (BYTE)(255 - std::max(0.0, std::min(255.0, (mm - 500) * 255.0 / 4000))); } } // near = warm
+  cv::Mat dm = FeedFloat(f);
+  cv::Mat g(dm.size(), CV_8UC1), valid(dm.size(), CV_8UC1);
+  for (int y = 0; y < dm.rows; y++) { const float* s = dm.ptr<float>(y); BYTE* d = g.ptr<BYTE>(y); BYTE* v = valid.ptr<BYTE>(y);
+    for (int x = 0; x < dm.cols; x++) { float mm = s[x]; v[x] = mm > 0 ? 255 : 0; d[x] = (BYTE)(255 - std::max(0.0, std::min(255.0, (mm - 500) * 255.0 / 4000))); } } // near = warm
   cv::Mat col; cv::applyColorMap(g, col, cv::COLORMAP_TURBO); col.setTo(cv::Scalar(0, 0, 0), ~valid); FitInto(col); }
 
 // Auto Framing: YuNet face detector (OpenCV DNN, MIT model) -> head-and-shoulders crop
@@ -112,7 +127,10 @@ static std::mutex tgtMx; static double tX = W / 2.0, tY = H / 2.0, tH = H; stati
 static double cX = W / 2.0, cY = H / 2.0, cH = H; static std::atomic<int> faceCount{0}; static std::atomic<bool> modelOk{false};
 static std::wstring exeDir;
 static void Shrink() { cv::Mat s; cv::resize(comp, s, cv::Size(SW, SH), 0, 0, cv::INTER_AREA); std::lock_guard<std::mutex> g(smallMx); cv::cvtColor(s, smallImg, cv::COLOR_BGRA2BGR); smallReady = true; }
+static void OnTerminate();
+static void ArmThisThread() { std::set_terminate(OnTerminate); } // MSVC's set_terminate is per thread; fast-fail still skips it
 static void FaceThread() {
+  ArmThisThread();
   std::string model; { char b[MAX_PATH * 3]; WideCharToMultiByte(CP_UTF8, 0, (exeDir + L"\\models\\face_detection_yunet_2023mar.onnx").c_str(), -1, b, sizeof b, 0, 0); model = b; }
   cv::Ptr<cv::FaceDetectorYN> det;
   try { det = cv::FaceDetectorYN::create(model, "", cv::Size(SW, SH), 0.7f, 0.3f, 50); modelOk = true; Log("Auto Framing face model loaded (YuNet)"); }
@@ -174,7 +192,7 @@ static void Recorder_Push(const BYTE* frame) {
   rq.emplace_back(std::move(b), (t.QuadPart - recT0) * 10000000 / qpf.QuadPart); }
 static bool RecFlag() { return GetFileAttributesW((dataDir + L"\\record.flag").c_str()) != INVALID_FILE_ATTRIBUTES; }
 static void RecorderThread() {
-  CoInitializeEx(0, COINIT_MULTITHREADED); MFStartup(MF_VERSION); QueryPerformanceFrequency(&qpf);
+  ArmThisThread(); CoInitializeEx(0, COINIT_MULTITHREADED); MFStartup(MF_VERSION); QueryPerformanceFrequency(&qpf);
   while (!quit) {
     if (!RecFlag()) { Sleep(100); continue; }
     PWSTR p; SHGetKnownFolderPath(FOLDERID_Videos, 0, nullptr, &p); std::wstring dir = std::wstring(p) + L"\\Atomic Kinection"; CoTaskMemFree(p); CreateDirectoryW(dir.c_str(), nullptr);
@@ -221,6 +239,8 @@ static void RecorderThread() {
 // ---------- audio: Kinect IF3 (16 kHz, 4 ch, 32-bit) -> mono -> 48 kHz -> CABLE Input ----------
 static const int RB = 16000 * 4; static float ring[RB]; static std::atomic<long long> wpos{0}, rpos{0}; static std::atomic<long long> audPkts{0}, audBytes{0};
 static std::atomic<double> levelSq{0}; static std::atomic<long long> levelN{0};
+static std::atomic<bool> micStop{false};
+static std::atomic<int> micOutstanding{0}; // transfers submitted and not yet completed for the last time
 static void LIBUSB_CALL acb(libusb_transfer* t) {
   double g = pow(10.0, micGainDb / 20.0);
   for (int i = 0; i < t->num_iso_packets; i++) { auto& p = t->iso_packet_desc[i]; if (p.status != LIBUSB_TRANSFER_COMPLETED || !p.actual_length) continue;
@@ -228,7 +248,10 @@ static void LIBUSB_CALL acb(libusb_transfer* t) {
     for (int s = 0; s < ns; s++) { double m = 0; for (int c = 0; c < 4; c++) { int v; memcpy(&v, b + s * 16 + c * 4, 4); m += v / 2147483648.0; }
       m = m / 4 * g; if (m > 1) m = 1; if (m < -1) m = -1; sq += m * m; ring[w % RB] = (float)m; w++; Recorder_Audio((float)m); }
     wpos = w; levelSq = levelSq + sq; levelN += ns; }
-  if (t->status == LIBUSB_TRANSFER_COMPLETED || t->status == LIBUSB_TRANSFER_ERROR) libusb_submit_transfer(t); }
+  // Keep the transfer alive until shutdown. A cancel, or micStop, is the last callback:
+  // Freenect2's USB thread runs that callback, then the count drops and the main thread may free it.
+  if (!micStop.load() && (t->status == LIBUSB_TRANSFER_COMPLETED || t->status == LIBUSB_TRANSFER_ERROR) && libusb_submit_transfer(t) == 0) return;
+  micOutstanding--; }
 
 static IMMDevice* FindRender(const wchar_t* match) {
   IMMDeviceEnumerator* e = nullptr; if (FAILED(CoCreateInstance(__uuidof(MMDeviceEnumerator), 0, CLSCTX_ALL, IID_PPV_ARGS(&e)))) return nullptr;
@@ -237,12 +260,12 @@ static IMMDevice* FindRender(const wchar_t* match) {
     ps->GetValue(PKEY_Device_FriendlyName, &v); bool ok = v.pwszVal && wcsstr(v.pwszVal, match); PropVariantClear(&v); ps->Release(); if (ok) return d; d->Release(); }
   return nullptr; }
 static void RenderThread() {
-  CoInitializeEx(0, COINIT_MULTITHREADED);
+  ArmThisThread(); CoInitializeEx(0, COINIT_MULTITHREADED);
   while (!quit) {
-    IMMDevice* d = FindRender(L"CABLE Input"); if (!d) { static int once = 0; if (!once++) Log("VB-CABLE 'CABLE Input' not found - mic output waits for it"); Sleep(3000); continue; }
+    IMMDevice* d = FindRender(L"CABLE Input"); if (!d) { static int once = 0; if (!once++) Log("VB-CABLE 'CABLE Input' not found - mic output waits for it"); Nap(3000); continue; }
     IAudioClient* ac; d->Activate(__uuidof(IAudioClient), CLSCTX_ALL, 0, (void**)&ac);
     WAVEFORMATEX wf{}; wf.wFormatTag = WAVE_FORMAT_IEEE_FLOAT; wf.nChannels = 1; wf.nSamplesPerSec = 48000; wf.wBitsPerSample = 32; wf.nBlockAlign = 4; wf.nAvgBytesPerSec = 48000 * 4;
-    if (FAILED(ac->Initialize(AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY, 400000, 0, &wf, 0))) { ac->Release(); d->Release(); Sleep(3000); continue; }
+    if (FAILED(ac->Initialize(AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY, 400000, 0, &wf, 0))) { ac->Release(); d->Release(); Nap(3000); continue; }
     IAudioRenderClient* rc; ac->GetService(IID_PPV_ARGS(&rc)); UINT32 bufN; ac->GetBufferSize(&bufN); ac->Start(); Log("mic output -> CABLE Input (48 kHz mono)");
     double frac = 0; bool bad = false;
     while (!quit && !bad) { Sleep(10); UINT32 pad; if (FAILED(ac->GetCurrentPadding(&pad))) { bad = true; break; } if (pad > 4800) continue;
@@ -252,7 +275,7 @@ static void RenderThread() {
       BYTE* p; if (FAILED(rc->GetBuffer(can, &p))) { bad = true; break; } float* o = (float*)p; long long r = rpos;
       for (UINT32 i = 0; i < can; i++) { float a = ring[r % RB], b = ring[(r + 1) % RB]; o[i] = (float)(a + (b - a) * frac); frac += 1.0 / 3; if (frac >= 1) { frac -= 1; r++; } }
       rpos = r; rc->ReleaseBuffer(can, 0); }
-    ac->Stop(); rc->Release(); ac->Release(); d->Release(); Log("mic output restarting"); Sleep(1000); } }
+    ac->Stop(); rc->Release(); ac->Release(); d->Release(); if (!quit) Log("mic output restarting"); Nap(1000); } }
 
 // ---------- status file for the UI ----------
 static std::atomic<double> curFps{0}; static std::atomic<int> kinectOk{0}; static std::atomic<long long> drops{0}, reconnects{0}; static std::atomic<int> activeMode{0};
@@ -264,68 +287,138 @@ static void WriteStatus() {
     (int)gpuDepth, kinectOk ? "OK" : "Reconnecting", (double)curFps, ModeName(activeMode), !autoFraming ? "Off" : modelOk ? "On" : "NoModel", zoomed ? "Zoomed" : "Wide", (int)faceCount, db, (double)micGainDb,
     (long long)drops, (long long)reconnects, (long long)jpegErrors, (double)frExp, (int)recOn, (double)recSecs, rf8, W, H, GetTickCount64()); fclose(f); }
 
-int wmain() {
+// ---------- 1.3.4 shutdown handlers ----------
+static void WaitDone(DWORD ms) { if (doneEvt) WaitForSingleObject(doneEvt, ms); }
+static BOOL WINAPI CtrlHandler(DWORD t) { Log("console event %u - shutting down", (unsigned)t); RequestQuit(); WaitDone(8000); return TRUE; } // Ctrl+C, Ctrl+Break, console close, logoff, shutdown
+static LRESULT CALLBACK HiddenWndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
+  switch (m) {
+  case WM_QUERYENDSESSION: return TRUE;
+  case WM_ENDSESSION: if (w) { Log("Windows is signing out / shutting down - releasing the Kinect"); RequestQuit(); WaitDone(4000); } return 0;
+  case WM_CLOSE: Log("WM_CLOSE - shutting down"); RequestQuit(); return 0; // taskkill (without /f) sends this
+  }
+  return DefWindowProcW(h, m, w, l); }
+static void WindowThread() { // hidden top-level window: message-only windows do not get WM_ENDSESSION
+  ArmThisThread();
+  WNDCLASSW wc{}; wc.lpfnWndProc = HiddenWndProc; wc.hInstance = GetModuleHandleW(nullptr); wc.lpszClassName = L"AtomicKinectionFeedWnd"; RegisterClassW(&wc);
+  HWND h = CreateWindowExW(0, wc.lpszClassName, L"Atomic Kinection feed", WS_OVERLAPPED, 0, 0, 0, 0, nullptr, nullptr, wc.hInstance, nullptr);
+  if (!h) return; MSG msg;
+  while (!quit) { if (MsgWaitForMultipleObjects(1, &quitEvt, FALSE, INFINITE, QS_ALLINPUT) == WAIT_OBJECT_0) break;
+    while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) { TranslateMessage(&msg); DispatchMessageW(&msg); } }
+  DestroyWindow(h); }
+static std::atomic<int> crashing{0};
+static void EmergencyRelease() { if (crashing++) return; quit = true; // best effort: stop the Kinect so it isn't left streaming, then end the process (Windows frees the USB handles)
+  libfreenect2::Freenect2Device* d = gDev; gDev = nullptr; if (d) { __try { d->stop(); d->close(); } __except (EXCEPTION_EXECUTE_HANDLER) {} } }
+static LONG WINAPI CrashFilter(EXCEPTION_POINTERS* e) { Log("crash 0x%08X - releasing the Kinect and exiting", e && e->ExceptionRecord ? (unsigned)e->ExceptionRecord->ExceptionCode : 0u);
+  EmergencyRelease(); TerminateProcess(GetCurrentProcess(), 3); return EXCEPTION_EXECUTE_HANDLER; }
+static void OnTerminate() { Log("unhandled C++ exception - releasing the Kinect and exiting"); EmergencyRelease(); TerminateProcess(GetCurrentProcess(), 3); }
+static int StopRunningFeed() { // akfeed.exe --stop
+  HANDLE e = OpenEventW(EVENT_MODIFY_STATE, FALSE, QUIT_EVENT); if (!e) return 0; SetEvent(e); CloseHandle(e);
+  for (int i = 0; i < 100; i++) { HANDLE m = OpenMutexW(SYNCHRONIZE, FALSE, L"Local\\AtomicKinectionCamFeed"); if (!m) return 0; CloseHandle(m); Sleep(100); }
+  return 1; }
+
+int wmain(int argc, wchar_t** argv) {
+  for (int i = 1; i < argc; i++) if (!_wcsicmp(argv[i], L"--stop")) return StopRunningFeed();
   HANDLE mtx = CreateMutexW(nullptr, TRUE, L"Local\\AtomicKinectionCamFeed"); if (GetLastError() == ERROR_ALREADY_EXISTS) return 0;
+  quitEvt = CreateEventW(nullptr, TRUE, FALSE, QUIT_EVENT); ResetEvent(quitEvt); doneEvt = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+  SetUnhandledExceptionFilter(CrashFilter); std::set_terminate(OnTerminate); SetConsoleCtrlHandler(CtrlHandler, TRUE);
+  SetProcessShutdownParameters(0x3FF, SHUTDOWN_NORETRY); // asked to close early at sign-out, before the apps using the webcam
+  std::thread qw([] { ArmThisThread(); WaitForSingleObject(quitEvt, INFINITE); quit = true; }), wt(WindowThread);
   PWSTR p; SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &p); dataDir = std::wstring(p) + L"\\AtomicKinection"; CoTaskMemFree(p); CreateDirectoryW(dataDir.c_str(), nullptr);
   SHGetKnownFolderPath(FOLDERID_Documents, 0, nullptr, &p); docsDir = std::wstring(p) + L"\\AtomicKinection"; CoTaskMemFree(p); CreateDirectoryW(docsDir.c_str(), nullptr);
   { wchar_t b[MAX_PATH]; GetModuleFileNameW(nullptr, b, MAX_PATH); exeDir = b; exeDir = exeDir.substr(0, exeDir.find_last_of(L'\\')); }
   DeleteFileW((dataDir + L"\\record.flag").c_str());
-  LF = _wfopen((dataDir + L"\\akfeed.log").c_str(), L"a"); Log("akfeed 1.3.2 started (libfreenect2: colour/IR/depth + Kinect mic + YuNet Auto Framing + MP4 recording; no Microsoft Kinect components)");
-  ReadSettings(); if (!CreateShared()) return 1;
+  LF = _wfopen((dataDir + L"\\akfeed.log").c_str(), L"a"); Log("akfeed 1.3.6 started (libfreenect2: colour/IR/depth + Kinect mic + YuNet Auto Framing + MP4 recording; no Microsoft Kinect components)");
+  ReadSettings(); if (!CreateShared()) { RequestQuit(); qw.join(); wt.join(); return 1; }
   static AkLogger akl; libfreenect2::setGlobalLogger(&akl);
   std::thread rt(RenderThread), ft(FaceThread), rec(RecorderThread);
-  std::thread st([] { long long lastJ = 0; int sec = 0; while (!quit) { Sleep(500); int m = mode; bool af = autoFraming, z = zoomed; ReadSettings();
+  std::thread st([] { ArmThisThread(); long long lastJ = 0; int sec = 0; while (!quit) { Sleep(500); int m = mode; bool af = autoFraming, z = zoomed; ReadSettings();
     if (m != mode || af != autoFraming || z != zoomed) Log("view: %s, Auto Framing %s, %s", ModeName(mode), autoFraming ? "on" : "off", zoomed ? "Zoomed" : "Wide"); WriteStatus();
     if (++sec % 120 == 0) { long long j = jpegErrors; if (j != lastJ) Log("rgb: %lld corrupt JPEG frames skipped in the last minute (total %lld)", j - lastJ, j); lastJ = j; } } });
   bool planned = false;
+  // One libusb context for the whole process. Freenect2 is given this context so it
+  // does not call libusb_exit. The mic submits on the same context and is pumped by
+  // Freenect2's USB thread (a second libusb_handle_events on one context is illegal).
+  // Windows libusb's backend exit is process-global: a second libusb_exit deletes the
+  // autoclaim critical section again and fail-fasts with 0xc0000409. That ran in
+  // ~Freenect2, after "Kinect released" and before "joining threads". See shutdown_order.h.
+  libusb_context* feedCtx = nullptr;
   while (!quit) {
     // ---- connect: colour only in Normal; colour+IR+depth in Night/Depth ----
     // With OpenCL, colour + IR + depth all stream all the time, so view switches never restart the Kinect
     // (closing the OpenCL decoder on a switch crashed 1.3.2-dev). CPU fallback: depth only in Night/Depth.
     int m = mode; bool wantDepth = true;
-    libfreenect2::Freenect2 fn; libfreenect2::Freenect2Device* dev = nullptr;
-    if (fn.enumerateDevices() > 0) { libfreenect2::PacketPipeline* pp = MakePipeline(true); if (gpuDepth != 1) { delete pp; wantDepth = m != 0; pp = MakePipeline(wantDepth); } dev = fn.openDefaultDevice(pp); }
-    if (!dev) { kinectOk = 0; if (hdr->magic == MAGIC) Stamp(); Sleep(2000); continue; }
-    const bool always = gpuDepth == 1;
-    libfreenect2::SyncMultiFrameListener lisC(libfreenect2::Frame::Color), lisD(libfreenect2::Frame::Ir | libfreenect2::Frame::Depth);
-    if (always || !wantDepth) dev->setColorFrameListener(&lisC); if (wantDepth) dev->setIrAndDepthFrameListener(&lisD);
-    if (!dev->startStreams(true, wantDepth)) { Log("start failed"); dev->close(); delete dev; Sleep(2000); continue; }
-    activeMode = m;
-    int appliedGen = -1;
-    auto applyExposure = [&] { std::lock_guard<std::mutex> lk(expMx); appliedGen = expGen;
-      if (expMode == "auto") dev->setColorAutoExposure((float)expComp);
-      else if (expMode == "manual") dev->setColorManualExposure((float)std::min(expMs, 33.0), (float)expGain);
-      else dev->setColorSemiAutoExposure((float)expMs);
-      Log("exposure %s ms=%.0f gain=%.1f comp=%.1f brightness=%.2f", expMode.c_str(), expMs, expGain, expComp, (double)brightness); };
-    applyExposure();
-    Log("Kinect connected (%s view), serial %s firmware %s", ModeName(m), dev->getSerialNumber().c_str(), dev->getFirmwareVersion().c_str());
-    libusb_context* uc = nullptr; libusb_device_handle* ah = nullptr; std::atomic<bool> evq{false}; std::thread ev; std::vector<libusb_transfer*> xs;
-    if (libusb_init(&uc) == 0 && (ah = libusb_open_device_with_vid_pid(uc, 0x045e, 0x02d8))) {
-      int r1 = libusb_claim_interface(ah, 3); libusb_claim_interface(ah, 2); libusb_set_interface_alt_setting(ah, 3, 0); Sleep(50);
-      int r2 = libusb_set_interface_alt_setting(ah, 3, 1); libusb_clear_halt(ah, 0x85);
-      for (int i = 0; i < 8; i++) { auto t = libusb_alloc_transfer(32); libusb_fill_iso_transfer(t, ah, 0x85, new unsigned char[256 * 32], 256 * 32, 32, acb, 0, 1000); libusb_set_iso_packet_lengths(t, 256); libusb_submit_transfer(t); xs.push_back(t); }
-      ev = std::thread([&] { timeval tv{0, 50000}; while (!evq) libusb_handle_events_timeout(uc, &tv); }); Log("Kinect mic streaming (claim %d alt %d)", r1, r2);
-    } else Log("Kinect mic open failed");
-    kinectOk = 1; long long frames = 0, lastF = 0; ULONGLONG lastT = GetTickCount64(); long long lastPk = audPkts, lastJe = jpegErrors; libfreenect2::FrameMap fm; bool lost = false; planned = false;
-    while (!quit && !lost) {
-      if (appliedGen != expGen) applyExposure();
-      if (!always && (mode != 0) != wantDepth) { Log("switching to %s view", ModeName(mode)); planned = true; break; }
-      if (mode != activeMode) activeMode = (int)mode; // no restart needed
-      const bool col = activeMode == 0;
-      if (always) { libfreenect2::FrameMap om; auto& other = col ? lisD : lisC; if (other.hasNewFrame()) { other.waitForNewFrame(om, 0); other.release(om); } }
-      auto& lis = col ? lisC : lisD;
-      if (lis.waitForNewFrame(fm, 3000)) {
-        if (col) { auto c = fm[libfreenect2::Frame::Color]; if (c->width == W && c->height == H && c->bytes_per_pixel == 4) { ComposeColour(c->data); frExp = c->exposure; frGain = c->gain; } }
-        else if (activeMode == 1) ComposeIr(fm[libfreenect2::Frame::Ir]); else ComposeDepth(fm[libfreenect2::Frame::Depth]);
-        lis.release(fm); Output(); if (autoFraming && (frames % 2) == 0) Shrink(); frames++; }
-      else { Log("DROP: no %s frame for 3 s", col ? "colour" : "depth"); lost = true; }
-      ULONGLONG now = GetTickCount64(); if (now - lastT >= 2000) { curFps = (frames - lastF) * 1000.0 / (now - lastT); lastF = frames; lastT = now;
-        long long je = jpegErrors; if (je - lastJe >= 20) { Log("rgb: %lld corrupt frames in 2 s - restarting the Kinect stream", je - lastJe); lost = true; } lastJe = je;
-        long long pk = audPkts; if (pk == lastPk) Log("mic: no audio packets for 2 s"); lastPk = pk; }
-    }
-    if (!planned) { drops++; kinectOk = 0; Banner(); }
-    for (auto t : xs) libusb_cancel_transfer(t); Sleep(300); evq = true; if (ev.joinable()) ev.join(); if (ah) { libusb_release_interface(ah, 3); libusb_release_interface(ah, 2); libusb_close(ah); } if (uc) libusb_exit(uc);
-    dev->stop(); dev->close(); delete dev;
-    if (!planned) { reconnects++; Log("reconnecting (#%lld)", (long long)reconnects); Sleep(1000); }
+    if (!feedCtx && libusb_init(&feedCtx) != 0) { Log("libusb_init failed"); kinectOk = 0; Nap(2000); continue; }
+    bool started = false;
+    {
+      libfreenect2::Freenect2 fn(feedCtx); libfreenect2::Freenect2Device* dev = nullptr;
+      if (fn.enumerateDevices() > 0) { libfreenect2::PacketPipeline* pp = MakePipeline(true); if (gpuDepth != 1) { delete pp; wantDepth = m != 0; pp = MakePipeline(wantDepth); } dev = fn.openDefaultDevice(pp); }
+      if (!dev) { kinectOk = 0; if (hdr->magic == MAGIC) Stamp(); }
+      else {
+        const bool always = gpuDepth == 1;
+        {
+          // Listeners die at the end of this block, before delete dev, so OpenCL frames
+          // return their buffers while the allocator and command queue still exist.
+          libfreenect2::SyncMultiFrameListener lisC(libfreenect2::Frame::Color), lisD(libfreenect2::Frame::Ir | libfreenect2::Frame::Depth);
+          if (always || !wantDepth) dev->setColorFrameListener(&lisC); if (wantDepth) dev->setIrAndDepthFrameListener(&lisD);
+          if (!dev->startStreams(true, wantDepth)) { Log("start failed"); dev->close(); }
+          else {
+            started = true; gDev = dev; activeMode = m;
+            int appliedGen = -1;
+            auto applyExposure = [&] { std::lock_guard<std::mutex> lk(expMx); appliedGen = expGen;
+              if (expMode == "auto") dev->setColorAutoExposure((float)expComp);
+              else if (expMode == "manual") dev->setColorManualExposure((float)std::min(expMs, 33.0), (float)expGain);
+              else dev->setColorSemiAutoExposure((float)expMs);
+              Log("exposure %s ms=%.0f gain=%.1f comp=%.1f brightness=%.2f", expMode.c_str(), expMs, expGain, expComp, (double)brightness); };
+            applyExposure();
+            Log("Kinect connected (%s view), serial %s firmware %s", ModeName(m), dev->getSerialNumber().c_str(), dev->getFirmwareVersion().c_str());
+            libusb_device_handle* ah = nullptr; std::vector<libusb_transfer*> xs;
+            if ((ah = libusb_open_device_with_vid_pid(feedCtx, 0x045e, 0x02d8))) {
+              int r1 = libusb_claim_interface(ah, 3); libusb_claim_interface(ah, 2); libusb_set_interface_alt_setting(ah, 3, 0); Sleep(50);
+              int r2 = libusb_set_interface_alt_setting(ah, 3, 1); libusb_clear_halt(ah, 0x85);
+              micStop = false;
+              for (int i = 0; i < 8; i++) { auto t = libusb_alloc_transfer(32); libusb_fill_iso_transfer(t, ah, 0x85, new unsigned char[256 * 32], 256 * 32, 32, acb, 0, 1000); libusb_set_iso_packet_lengths(t, 256);
+                if (libusb_submit_transfer(t) == 0) micOutstanding++; xs.push_back(t); }
+              Log("Kinect mic streaming (claim %d alt %d)", r1, r2);
+            } else Log("Kinect mic open failed");
+            kinectOk = 1; long long frames = 0, lastF = 0; ULONGLONG lastT = GetTickCount64(); long long lastPk = audPkts, lastJe = jpegErrors; libfreenect2::FrameMap fm; bool lost = false; planned = false;
+            while (!quit && !lost) {
+              if (appliedGen != expGen) applyExposure();
+              if (!always && (mode != 0) != wantDepth) { Log("switching to %s view", ModeName(mode)); planned = true; break; }
+              if (mode != activeMode) activeMode = (int)mode; // no restart needed
+              const bool col = activeMode == 0;
+              if (always) { libfreenect2::FrameMap om; auto& other = col ? lisD : lisC; if (other.hasNewFrame()) { other.waitForNewFrame(om, 0); other.release(om); } }
+              auto& lis = col ? lisC : lisD;
+              if (lis.waitForNewFrame(fm, 3000)) {
+                if (col) { auto c = fm[libfreenect2::Frame::Color]; if (c->width == W && c->height == H && c->bytes_per_pixel == 4) { ComposeColour(c->data); frExp = c->exposure; frGain = c->gain; } }
+                else if (activeMode == 1) ComposeIr(fm[libfreenect2::Frame::Ir]); else ComposeDepth(fm[libfreenect2::Frame::Depth]);
+                lis.release(fm); Output(); if (autoFraming && (frames % 2) == 0) Shrink(); frames++; }
+              else { Log("DROP: no %s frame for 3 s", col ? "colour" : "depth"); lost = true; }
+              ULONGLONG now = GetTickCount64(); if (now - lastT >= 2000) { curFps = (frames - lastF) * 1000.0 / (now - lastT); lastF = frames; lastT = now;
+                long long je = jpegErrors; if (je - lastJe >= 20) { Log("rgb: %lld corrupt frames in 2 s - restarting the Kinect stream", je - lastJe); lost = true; } lastJe = je;
+                long long pk = audPkts; if (pk == lastPk) Log("mic: no audio packets for 2 s"); lastPk = pk; }
+            }
+            if (!planned) { drops++; kinectOk = 0; Banner(); }
+            micStop = true;
+            for (auto t : xs) libusb_cancel_transfer(t);
+            for (int i = 0; i < 50 && micOutstanding.load() > 0; i++) Sleep(10); // Freenect2's USB thread runs the final callbacks
+            if (micOutstanding.load() > 0) Log("mic: %d transfers still outstanding - freeing them anyway", micOutstanding.load());
+            for (auto t : xs) { delete[] t->buffer; libusb_free_transfer(t); } xs.clear();
+            if (ah) { libusb_release_interface(ah, 3); libusb_release_interface(ah, 2); libusb_close(ah); }
+            gDev = nullptr; dev->stop(); dev->close();
+          }
+        } // release listener frames (including leftover OpenCL IR/depth) before the pipeline dies
+        delete dev;
+      }
+    } // ~Freenect2 stops the USB event thread and does not call libusb_exit
+    if (!started) { Nap(2000); continue; }
+    Log(quit ? "Kinect released (streams stopped, device closed)" : "Kinect closed");
+    if (quit) break;
+    if (!planned) { reconnects++; Log("reconnecting (#%lld)", (long long)reconnects); Nap(1000); }
   }
-  quit = true; ft.join(); rec.join(); rt.join(); st.join(); return 0; }
+  if (feedCtx) { libusb_exit(feedCtx); feedCtx = nullptr; } // exactly once, after the event thread has stopped
+  RequestQuit(); Log("shutting down: joining threads");
+  std::thread dog([] { ArmThisThread(); if (WaitForSingleObject(doneEvt, 10000) == WAIT_TIMEOUT) { Log("shutdown took over 10 s - forcing exit"); TerminateProcess(GetCurrentProcess(), 2); } }); dog.detach();
+  ft.join(); rec.join(); rt.join(); st.join(); qw.join(); wt.join();
+  kinectOk = 0; WriteStatus(); if (view) { hdr->magic = 0; UnmapViewOfFile(view); view = nullptr; }
+  Log("akfeed stopped cleanly - Kinect released"); if (LF) fclose(LF), LF = nullptr;
+  SetEvent(doneEvt); ReleaseMutex(mtx); CloseHandle(mtx); return 0; }

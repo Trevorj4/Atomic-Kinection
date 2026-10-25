@@ -8,7 +8,7 @@ using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 namespace AtomicKinection {
-  /// <summary>Atomic Kinection 1.3.2 window: live preview of the Kinect feed (from akfeed.exe), snapshots and the mic gain.</summary>
+  /// <summary>Atomic Kinection 1.3.6 window: live preview of the Kinect feed (from akfeed.exe), snapshots, the mic gain and brightness.</summary>
   public sealed class MainForm : Form {
     const int W = 1920, H = 1080, Header = 64; const uint Magic = 0x314B4B41;
     readonly PictureBox view = new PictureBox { Dock = DockStyle.Fill, SizeMode = PictureBoxSizeMode.Zoom, BackColor = Color.Black };
@@ -21,6 +21,9 @@ namespace AtomicKinection {
     static string VideosDir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "Atomic Kinection");
     readonly TrackBar gain = new TrackBar { Minimum = 0, Maximum = 40, TickFrequency = 5, Width = 220, Value = 18 };
     readonly Label gainLbl = new Label { AutoSize = true, Padding = new Padding(0, 8, 0, 0) };
+    // 1.3.5: brightness slider, 0.5x-2.0x in 0.1 steps (5-20), writes Brightness= to settings.ini; akfeed rereads it every 0.5 s
+    readonly TrackBar bright = new TrackBar { Minimum = 5, Maximum = 20, TickFrequency = 5, SmallChange = 1, LargeChange = 1, Width = 160, Value = 10 };
+    readonly Label brightLbl = new Label { AutoSize = true, Padding = new Padding(0, 8, 0, 0) };
     readonly ProgressBar meter = new ProgressBar { Width = 160, Height = 16, Maximum = 60, Margin = new Padding(3, 10, 3, 3) };
     readonly ToolStripStatusLabel status = new ToolStripStatusLabel { Spring = true, TextAlign = ContentAlignment.MiddleLeft };
     readonly Timer timer = new Timer { Interval = 15 };
@@ -30,7 +33,7 @@ namespace AtomicKinection {
     static string SettingsFile => Path.Combine(OutDir, "settings.ini");
     static string StatusFile => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AtomicKinection", "status.txt");
     public MainForm() {
-      Text = "Atomic Kinection 1.3.2"; Width = 1280; Height = 820; Font = new Font("Segoe UI", 9.5f);
+      Text = "Atomic Kinection 1.3.6"; Width = 1280; Height = 820; Font = new Font("Segoe UI", 9.5f);
       try {
         var ico = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "AtomicKinection.ico");
         if (File.Exists(ico)) Icon = new Icon(ico, 256, 256);
@@ -39,11 +42,13 @@ namespace AtomicKinection {
       var bar = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(4) };
       bar.Controls.AddRange(new Control[] { snapBtn, folderBtn, new Label { Text = "   Mic gain:", AutoSize = true, Padding = new Padding(0, 8, 0, 0) }, gain, gainLbl, new Label { Text = "Level:", AutoSize = true, Padding = new Padding(0, 8, 0, 0) }, meter });
       var modes = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(4) };
-      modes.Controls.AddRange(new Control[] { new Label { Text = "View:", AutoSize = true, Padding = new Padding(0, 8, 0, 0) }, normalBtn, nightBtn, depthBtn, new Label { Text = "   ", AutoSize = true }, afBtn, zoomBtn, new Label { Text = "   ", AutoSize = true }, recBtn, recLbl });
+      modes.Controls.AddRange(new Control[] { new Label { Text = "View:", AutoSize = true, Padding = new Padding(0, 8, 0, 0) }, normalBtn, nightBtn, depthBtn, new Label { Text = "   ", AutoSize = true }, afBtn, zoomBtn, new Label { Text = "   ", AutoSize = true }, recBtn, new Label { Text = "   Brightness:", AutoSize = true, Padding = new Padding(0, 8, 0, 0) }, bright, brightLbl, recLbl });
       var ss = new StatusStrip(); ss.Items.Add(status);
       Controls.Add(view); Controls.Add(modes); Controls.Add(bar); Controls.Add(ss);
       gain.Value = Math.Max(0, Math.Min(40, (int)Math.Round(ReadGain()))); ShowGain();
       gain.ValueChanged += (s, e) => { ShowGain(); WriteGain(gain.Value); };
+      bright.Value = Math.Max(5, Math.Min(20, (int)Math.Round(ReadBrightness() * 10))); ShowBrightness();
+      bright.ValueChanged += (s, e) => { ShowBrightness(); WriteBrightness(bright.Value / 10.0); };
       snapBtn.Click += (s, e) => Snapshot();
       folderBtn.Click += (s, e) => { Directory.CreateDirectory(VideosDir); Process.Start("explorer.exe", VideosDir); };
       normalBtn.Click += (s, e) => SetMode("Normal"); nightBtn.Click += (s, e) => SetMode("Night"); depthBtn.Click += (s, e) => SetMode("Depth");
@@ -70,6 +75,15 @@ namespace AtomicKinection {
         lines.RemoveAll(l => l.StartsWith(key, StringComparison.OrdinalIgnoreCase)); lines.Add(key + val); File.WriteAllLines(SettingsFile, lines);
       } catch { }
     }
+    void ShowBrightness() => brightLbl.Text = (bright.Value / 10.0).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + "x";
+    static double ReadBrightness() { try { foreach (var l in File.ReadAllLines(SettingsFile)) if (l.StartsWith("Brightness=", StringComparison.OrdinalIgnoreCase) && double.TryParse(l.Substring(11), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var b)) return b; } catch { } return 1.0; }
+    static void WriteBrightness(double b) {
+      try {
+        var lines = File.Exists(SettingsFile) ? new System.Collections.Generic.List<string>(File.ReadAllLines(SettingsFile)) : new System.Collections.Generic.List<string>();
+        lines.RemoveAll(l => l.StartsWith("Brightness=", StringComparison.OrdinalIgnoreCase)); lines.Add("Brightness=" + b.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture));
+        File.WriteAllLines(SettingsFile, lines);
+      } catch { }
+    }
     void ShowGain() => gainLbl.Text = $"+{gain.Value} dB";
     static double ReadGain() { try { foreach (var l in File.ReadAllLines(SettingsFile)) if (l.StartsWith("MicGainDb=", StringComparison.OrdinalIgnoreCase) && double.TryParse(l.Substring(10), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var g)) return g; } catch { } return 18; }
     static void WriteGain(int db) {
@@ -79,7 +93,23 @@ namespace AtomicKinection {
         File.WriteAllLines(SettingsFile, lines);
       } catch { }
     }
+    static volatile bool closing; // 1.3.4: set once the window is closing so the feed is not restarted
+    protected override void OnFormClosing(FormClosingEventArgs e) {
+      base.OnFormClosing(e); if (e.Cancel) return;
+      closing = true; timer.Stop();
+      try { acc?.Dispose(); mmf?.Dispose(); } catch { } acc = null; mmf = null;
+      StopFeed();
+    }
+    /// <summary>1.3.4: tells akfeed.exe to stop its streams and close the Kinect, waits for it to exit, and kills it only as a last resort.</summary>
+    public static void StopFeed() {
+      closing = true;
+      try { if (System.Threading.EventWaitHandle.TryOpenExisting(@"Local\AtomicKinectionFeedQuit", out var ev)) using (ev) ev.Set(); } catch { }
+      foreach (var p in Process.GetProcessesByName("akfeed")) {
+        try { if (!p.WaitForExit(8000)) { p.Kill(); p.WaitForExit(2000); } } catch { } finally { p.Dispose(); }
+      }
+    }
     static void EnsureFeed() {
+      if (closing) return;
       if (Process.GetProcessesByName("akfeed").Length > 0) return;
       var exe = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "akfeed.exe");
       if (File.Exists(exe)) try { Process.Start(new ProcessStartInfo(exe) { UseShellExecute = false, CreateNoWindow = true }); } catch { }

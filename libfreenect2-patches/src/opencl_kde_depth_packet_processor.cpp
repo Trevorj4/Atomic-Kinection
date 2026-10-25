@@ -134,8 +134,9 @@ public:
   {
     if(b == NULL)
       return;
-    release_opencl(static_cast<OpenCLKdeBuffer *>(b));
-    delete b;
+    // Same as OpenCLAllocator::free: a cl::Error must not escape ~OpenCLKdeFrame.
+    try { release_opencl(static_cast<OpenCLKdeBuffer *>(b)); } catch (...) {}
+    try { delete b; } catch (...) {}
   }
 };
 
@@ -154,7 +155,11 @@ public:
 
   virtual ~OpenCLKdeFrame()
   {
-    buffer->allocator->free(buffer);
+    try {
+      if (buffer != 0 && buffer->allocator != 0)
+        buffer->allocator->free(buffer);
+    } catch (...) {}
+    buffer = 0;
     data = NULL;
   }
 };

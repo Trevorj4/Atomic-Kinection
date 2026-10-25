@@ -1,4 +1,4 @@
-ATOMIC KINECTION v1.3.2 - Kinect v2 (Xbox One / Kinect for Windows v2) webcam + microphone
+ATOMIC KINECTION v1.3.6 - Kinect v2 (Xbox One / Kinect for Windows v2) webcam + microphone
 Freeware. No Microsoft Kinect software, runtime or driver is used.
 ==========================================================================================
 
@@ -10,7 +10,7 @@ WHAT IT DOES
   and everything restarts by itself when the Kinect is back.
 - AtomicKinection.exe: preview, snapshots (Documents\AtomicKinection) and the mic gain slider
   (saved in Documents\AtomicKinection\settings.ini as MicGainDb=).
-- akfeed.exe runs in the background from sign-in, so camera + mic work with the window closed.
+- akfeed.exe runs while the Atomic Kinection window is open and releases the Kinect when the window closes.
 
 NEEDS
 - Windows 10/11 64-bit, USB 3.0 port, Kinect adapter + power brick.
@@ -29,7 +29,7 @@ UNINSTALL
 Run Uninstall-AtomicKinection.cmd: removes the app, webcam, and Start menu and desktop
 shortcuts, puts the Kinect's original Windows driver back, and offers to remove VB-CABLE.
 
-NOT YET IN 1.3.2 (planned): depth, infrared, 3D scanner, body/face tracking, Auto Framing.
+NOT IN THIS BUILD: 3D scanner and body tracking.
 The 1.1.x versions (Microsoft Kinect SDK based) are in the Archive folder.
 
 Licences: see THIRD-PARTY-NOTICES.txt and the licenses folder. Source code is in src\.
@@ -42,6 +42,11 @@ NEW IN 1.3.0
 - Record / Stop: saves exactly what the webcam shows, 1920x1080 at 30 fps, with the Kinect microphone, as MP4
   (H.264 + AAC) in Videos\Atomic Kinection, named by date and time. A red REC timer shows while recording.
 - Webcam and recordings are 1920x1080 and not mirrored in every view.
+
+
+NEW IN 1.3.6
+- Closing the window releases the Kinect and akfeed exits cleanly (no 0xC0000409 shutdown crash).
+- Colour, night vision and depth are the same true orientation (text reads correctly in the app and in recordings).
 
 
 NEW IN 1.3.1 / 1.3.2
